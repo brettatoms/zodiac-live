@@ -1,0 +1,78 @@
+# zodiac-live
+
+[Zodiac](https://github.com/brettatoms/zodiac) extension for
+[remuda](https://github.com/brettatoms/remuda) +
+[darkstar](https://github.com/brettatoms/darkstar).
+
+Wiring only: integrant keys, two routes, and request-context injection. No domain
+logic. remuda holds the view state, darkstar translates changes into Datastar
+patches, and this connects both to a Zodiac app.
+
+## Usage
+
+```clojure
+(require '[zodiac.core :as z]
+         '[zodiac.ext.live :as z.live])
+
+(defn routes []
+  ["" (z.live/routes)
+   ["/" {:get {:handler home}}]])
+
+(z/start {:routes  #'routes
+          :async?  true
+          :jetty   {:async-timeout 0}
+          :extensions
+          [(z.live/init {:components {:chat #'app/chat}   ; vars, see below
+                         :render-fn  chassis/html
+                         :source     my-source
+                         :secret     (env "LIVE_SECRET")
+                         :sse-fn     my-sse-fn})]})
+```
+
+`:async? true` and `:async-timeout 0` are required. The SSE route holds a
+connection open, so it must not occupy a request worker or time out.
+
+Register components as **vars** (`#'app/chat`, not `app/chat`). The engine resolves
+a component by name on every render and derefs it, so redefining `:render` at a
+REPL reaches connections that are already open. A plain map works but only
+whole-map replacement is visible.
+
+## What it wires
+
+- the engine, PubSub bus, subscription registry and fragment cache as integrant
+  components, so they participate in Zodiac's lifecycle
+- an SSE route (`/live`) and an action route (`/live/act`), both CSRF-exempt
+- a flush loop that turns coalesced invalidation hints into pushes
+
+Registries are held in `defonce`d atoms rather than created per `init-key`, so they
+survive `tools.namespace/refresh`. Recreating them on reload would drop every
+connection.
+
+## Example app
+
+`examples/chat/` is an end-to-end encrypted chat app: channels, message history
+with pagination, and live typing indicators.
+
+```
+clojure -M:example -m chat.server
+```
+
+The encryption key lives in the URL fragment, which browsers do not transmit, so
+the server stores ciphertext it cannot read. Messages are held in SQLite behind
+remuda's `Source` protocol; typing indicators are ephemeral server state published
+as hints.
+
+## Related
+
+- [remuda](https://github.com/brettatoms/remuda) — the engine: view state,
+  diffing, tiers, reconnect
+- [darkstar](https://github.com/brettatoms/darkstar) — Datastar binding, and notes
+  on what this model suits
+
+## Status
+
+Working, not released.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
