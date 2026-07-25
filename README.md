@@ -62,6 +62,10 @@ the server stores ciphertext it cannot read. Messages are held in SQLite behind
 remuda's `Source` protocol; typing indicators are ephemeral server state published
 as hints.
 
+`CHAT_LIVE_SECRET` and `CHAT_COOKIE_SECRET` are read from the environment and
+default to per-process random values, so restarting invalidates outstanding
+snapshots and sessions. Set them to keep those across restarts.
+
 ## Related
 
 - [remuda](https://github.com/brettatoms/remuda) — the engine: view state,

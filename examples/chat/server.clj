@@ -4,13 +4,14 @@
   Two extensions compose here without knowing about each other: `zodiac-sql`
   provides the db in the request context, and `zodiac.ext.live` provides the live
   engine. Both are just functions transforming the same integrant config, which is
-  the property  was betting on.
+  the property that makes extensions compose.
 
   Run:
     clojure -M:example -m chat.server
   then open http://localhost:3000"
   (:require [charred.api :as charred]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [dev.onionpancakes.chassis.core :as chassis]
             [starfederation.datastar.clojure.api :as d*]
             [starfederation.datastar.clojure.adapter.ring :as d*ring]
@@ -24,7 +25,19 @@
             [remuda.source :as source])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
-(def secret "chat-example-secret-not-for-production")
+(def secret
+  "HMAC key for recovery snapshots.
+
+  Read from the environment rather than hardcoded, so this example does not model
+  committing a key. The fallback is a fresh random value per process, which is the
+  safe default: the worst case is that a snapshot issued by a previous run fails to
+  verify and the client remounts."
+  (or (System/getenv "CHAT_LIVE_SECRET") (str (random-uuid))))
+
+(def cookie-secret
+  "Zodiac requires exactly 16 bytes."
+  (or (System/getenv "CHAT_COOKIE_SECRET")
+      (subs (str/replace (str (random-uuid)) "-" "") 0 16)))
 
 (defonce ^{:doc "live id -> latch, keeping each async SSE connection alive."}
   latches
@@ -287,7 +300,7 @@ input[name=draft]{flex:1;padding:.5rem}
                    :signals-fn signals})
         sys (z/start {:routes #'routes
                       :extensions [sql-ext live-ext]
-                      :cookie-secret "0123456789abcdef"
+                      :cookie-secret cookie-secret
                       ;; Async, so a parked SSE connection does not hold a request
                       ;; worker thread. :async-timeout 0 keeps it open.
                       :async? true
