@@ -1,10 +1,10 @@
 (ns zodiac.ext.live
   "Zodiac extension for remuda + darkstar.
 
-  `DESIGN.md` §2.2. The core is plain Ring and knows nothing about zodiac; this
+  The core is plain Ring and knows nothing about zodiac; this
   namespace is the wiring, following the shape of `zodiac-hot-reload`: integrant
   keys, route registration, and a config transformer. **No domain logic.** If this
-  file grows past wiring, §2.1's map-of-pieces design has failed.
+  file grows past wiring, 's map-of-pieces design has failed.
 
   Usage:
 
@@ -22,7 +22,7 @@
 
   ## Components are registered as vars, deliberately
 
-  §9.4 requires that redefining `:render` at a REPL reaches already-connected
+  Redefining `:render` at a REPL must reach already-connected
   contexts. The engine resolves a component by name on every render and derefs it
   if it is deref-able, so **an adapter should register vars** — `#'app/chat`, not
   `app/chat`. A plain map still works but only whole-map replacement is visible.
@@ -30,7 +30,7 @@
   ## Registries survive reload
 
   The live-context registry, subscription registry and cache are held in
-  `defonce`d atoms rather than created per `init-key`, because §9.3 requires them
+  `defonce`d atoms rather than created per `init-key`, because  requires them
   to survive `tools.namespace/refresh`. Recreating them on reload would drop every
   connection — the same failure as a server restart, triggered by saving a file."
   (:require [clojure.tools.logging :as log]
@@ -45,7 +45,7 @@
 (alias 'z 'zodiac.core)
 
 ;;; ==========================================================================
-;;; Reload-surviving state (§9.3)
+;;; Reload-surviving state
 ;;; ==========================================================================
 
 (defonce ^{:doc "id -> live context. Survives namespace reload."}
@@ -70,7 +70,7 @@
    (engine/engine {:components components
                    ;; Fragment caching is entry point 2 of the cache: content
                    ;; addressed, so it needs no declaration and cannot leak
-                   ;; (§7.2.1).
+                   ;;.
                    :render-fn #(cache/cached-render view-cache render-fn %)
                    :registry registry})))
 
@@ -84,7 +84,7 @@
 (defmethod ig/init-key ::flusher
   [_ {:keys [engine interval-ms source]}]
   ;; The flush loop is what makes coalescing real: hints arriving inside one
-  ;; interval collapse to a single rebuild per context (§7.3). Flushing per hint
+  ;; interval collapse to a single rebuild per context. Flushing per hint
   ;; would defeat it.
   (let [running? (atom true)
         thread (Thread.
@@ -159,7 +159,7 @@
   "The connection route, in zodiac's async 3-arity form.
 
   Delegates everything to the caller's `sse-fn`, which owns the transport, because
-  §2.4 requires the server to stay replaceable — this namespace must not name
+  The server must stay replaceable — this namespace must not name
   Jetty, http-kit, or a datastar adapter."
   [request respond _raise]
   (let [{:keys [engine sse-fn source secret]} (live-ctx request)]
@@ -174,7 +174,7 @@
 (defn action-handler
   "The interaction route. Looks up the live context and dispatches an event.
 
-  Args arrive as a JSON payload (§5.4.1) and are passed through **uncoerced**,
+  Args arrive as a JSON payload and are passed through **uncoerced**,
   because their types already survived the wire. That is the whole point of the
   payload form: the previous query-string encoding forced every receiver to guess a
   type, and `dev/slice` guessed with a hardcoded `parse-long` that silently turned
@@ -253,7 +253,7 @@
       ;; Async, per zodiac's own SSE example: the handler responds immediately with
       ;; a streaming body and the connection is held open without occupying a
       ;; request worker thread. That is a materially better concurrency profile
-      ;; than blocking a thread per connection (§8.1), and it is the reason the
+      ;; than blocking a thread per connection, and it is the reason the
       ;; app must start with :async? true and :jetty {:async-timeout 0}.
       :zodiac/async? true
       ;; An SSE stream is not a form post; CSRF does not apply and would reject
@@ -271,7 +271,7 @@
   `[::z/context ::live]`.
 
   Options:
-  - `:components`  map of name -> component (register **vars**, per §9.4)
+  - `:components`  map of name -> component (register **vars**, )
   - `:render-fn`   hiccup -> string
   - `:source`      a `remuda.source/Source`
   - `:secret`      HMAC key for recovery snapshots

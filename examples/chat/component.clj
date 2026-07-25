@@ -15,7 +15,7 @@
   the visible characters are client-side.
 
   That is honest about the boundary rather than pretending the server knows more
-  than it does. It also means the id scheme of §5.0 keeps working: the element the
+  than it does. It also means the id scheme of  keeps working: the element the
   client writes into is the element the server addresses."
   (:require [clojure.string :as str]
             [chat.db :as db]
@@ -96,7 +96,7 @@
 ;;; ==========================================================================
 
 (def chat
-  {;; Only exceptions are declared; everything else is :sourced by default (§5.1).
+  {;; Only exceptions are declared; everything else is :sourced by default.
    :state
    {;; A half-typed message has no row to rebuild from, so it rides the recovery
     ;; snapshot and survives a deploy.
@@ -139,7 +139,7 @@
                                          [:count-before (:channel-id params) oldest]))))}
 
    ;; Two topics: one for the channel's messages, one for its typing state. Narrow
-   ;; topics matter (§7.2) — a keystroke must not invalidate the message list.
+   ;; topics matter — a keystroke must not invalidate the message list.
    :subscribe
    (fn [{:keys [params]}]
      [[:channel (:channel-id params)]

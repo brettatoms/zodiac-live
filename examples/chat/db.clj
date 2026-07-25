@@ -129,7 +129,7 @@
   - `[:count-before id b]`  -> how many older messages remain
 
   `basis` returns `nil`: SQLite keeps no history, so it cannot honour a basis
-  token, and §7.1 requires such a store to say so rather than pretend."
+  token, and  requires such a store to say so rather than pretend."
   [db]
   (reify source/Source
     (fetch [this query] (source/fetch this query nil))

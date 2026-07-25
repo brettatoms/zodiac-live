@@ -1,7 +1,7 @@
 (ns chat.typing
   "Ephemeral typing state.
 
-  A deliberate resolution of a tension with `DESIGN.md` §7.2. \"Who is typing\" *is*
+  A deliberate resolution of a tension with \"Who is typing\" *is*
   data, but a PubSub hint carries none — the whole point of hints is that a dropped,
   duplicated or reordered one cannot corrupt a view. Putting the username in the
   hint would break exactly that: a dropped \"stopped typing\" would leave
@@ -12,7 +12,7 @@
   The hint still carries nothing, and this map is the source of truth for a fact
   that simply happens not to be durable.
 
-  It is **not** a state tier (§5.1). Tiers describe how a field of a *view*
+  It is **not** a state tier. Tiers describe how a field of a *view*
   survives a reconnect; this is server-side state that several views derive from,
   which makes it a `Source` in every respect except durability.
 

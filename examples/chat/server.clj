@@ -4,7 +4,7 @@
   Two extensions compose here without knowing about each other: `zodiac-sql`
   provides the db in the request context, and `zodiac.ext.live` provides the live
   engine. Both are just functions transforming the same integrant config, which is
-  the property §2 was betting on.
+  the property  was betting on.
 
   Run:
     clojure -M:example -m chat.server
@@ -72,7 +72,7 @@
 
 (defn- sse-fn
   "Opens a live connection. Supplied to the extension so the transport stays the
-  application's choice (§2.4) — the extension names no server."
+  application's choice — the extension names no server."
   [{:keys [request engine source]}]
   (let [params (:params request)
         channel-id (get params "channel")
@@ -190,7 +190,7 @@ input[name=draft]{flex:1;padding:.5rem}
         {:keys [channel author ct iv]} body-params]
     (db/add-message! db channel author ct iv)
     (typing/clear! channel author)
-    ;; Hints only: "this channel changed", no payload (§7.2).
+    ;; Hints only: "this channel changed", no payload.
     (z.live/publish! live [:channel channel])
     (z.live/publish! live [:typing channel])
     {:status 204}))
@@ -273,7 +273,7 @@ input[name=draft]{flex:1;padding:.5rem}
         source-holder (atom nil)
         live-ext (z.live/init
                   {;; A VAR, so redefining the component at a REPL reaches
-                   ;; already-connected contexts (§9.4).
+                   ;; already-connected contexts.
                    :components {:chat #'component/chat}
                    :render-fn chassis/html
                    ;; Indirection through an atom because the Source needs the db,
