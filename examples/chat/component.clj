@@ -15,7 +15,7 @@
   the visible characters are client-side.
 
   That is honest about the boundary rather than pretending the server knows more
-  than it does. It also means the id scheme of  keeps working: the element the
+  than it does. It also keeps the id scheme working: the element the
   client writes into is the element the server addresses."
   (:require [clojure.string :as str]
             [chat.db :as db]

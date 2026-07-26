@@ -8,6 +8,14 @@ Wiring only: integrant keys, two routes, and request-context injection. No domai
 logic. Remuda holds the view state, Darkstar translates changes into Datastar
 patches, and this connects both to a Zodiac app.
 
+## Install
+
+```clojure
+com.github.brettatoms/zodiac-live {:mvn/version "0.1.9"}
+```
+
+Brings in Remuda and Darkstar transitively.
+
 ## Usage
 
 ```clojure
@@ -72,7 +80,7 @@ The signing keys are committed so the demo runs with no setup. Override them wit
 
 ## Status
 
-Working, not released.
+Published and tested, but new and unproven in production.
 
 ## License
 

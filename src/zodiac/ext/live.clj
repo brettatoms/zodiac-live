@@ -30,7 +30,7 @@
   ## Registries survive reload
 
   The live-context registry, subscription registry and cache are held in
-  `defonce`d atoms rather than created per `init-key`, because  requires them
+  `defonce`d atoms rather than created per `init-key`, so they
   to survive `tools.namespace/refresh`. Recreating them on reload would drop every
   connection — the same failure as a server restart, triggered by saving a file."
   (:require [clojure.tools.logging :as log]
