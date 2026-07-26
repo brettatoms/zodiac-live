@@ -242,7 +242,19 @@
                  :hidden true :readonly true}]]
        [:div {:id "live-root"} "connecting…"]
        ;; The live connection carries the same session token.
-       [:div {:data-init (str "@get('/live?t=" t "')")}]
+       ;; requestCancellation "cleanup" is load-bearing, not a tuning knob.
+       ;;
+       ;; The default is "auto", which aborts only a *duplicate of the same action*
+       ;; — datastar keys that on method plus URL. A different channel is a
+       ;; different URL, so navigating from one channel to another left the old SSE
+       ;; stream open, and a server restart made datastar reconnect it. One tab
+       ;; accumulated six live connections to six channels, all returning 200 and
+       ;; all patching the same DOM. That is what made the member list appear to
+       ;; only update after a full page refresh.
+       ;;
+       ;; "cleanup" registers the abort against this element, so the connection
+       ;; closes when the element leaves the DOM — which is what a navigation does.
+       [:div {:data-init (str "@get('/live?t=" t "', {requestCancellation: 'cleanup'})")}]
        [:script (chassis/raw (format "window.chatBoot(%s, %s, %s)"
                                      (pr-str channel-id) (pr-str username)
                                      (pr-str t)))]))))

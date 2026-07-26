@@ -27,6 +27,20 @@
                   :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}
                   :main-opts ["-m" "kaocha.runner"]}
 
+           ;; The CONTROL EXPERIMENT: the same app on the same stack, using Datastar
+           ;; directly instead of remuda. Same zodiac, same zodiac-sql, so the only
+           ;; variable is the engine.
+           ;;
+           ;;   clojure -M:direct -m direct.server   (port 3001)
+           :direct {:extra-paths ["examples" "examples/resources"]
+                    :extra-deps {com.github.brettatoms/zodiac-sql {:mvn/version "0.3.27"}
+                                 dev.data-star.clojure/ring {:mvn/version "1.0.0-RC11"}
+                                 dev.onionpancakes/chassis {:mvn/version "1.0.365"}
+                                 com.cnuernber/charred {:mvn/version "1.041"}
+                                 org.xerial/sqlite-jdbc {:mvn/version "3.53.2.1"}
+                                 com.github.seancorfield/next.jdbc {:mvn/version "1.3.1118"}}
+                    :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]}
+
            ;; clojure -M:dev:... — resolve sibling libraries from the working tree
            ;; rather than a released version. See darkstar's :dev alias.
            :dev {:override-deps {com.github.brettatoms/remuda {:local/root "../remuda"}
