@@ -1,0 +1,110 @@
+name: Release Version
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - name: Setup Clojure
+        uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d # 13.6.1
+        with:
+          cli: '1.12.0.1479'
+      - name: Cache All The Things
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.clojure
+            ~/.cpcache
+          key: ${{ runner.os }}-${{ hashFiles('**/deps.edn') }}
+      # These libraries depend on each other by released coordinate. Until they
+      # are on Clojars, check out and install the upstream ones so the build can
+      # resolve them.
+      - name: Check out remuda
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: brettatoms/remuda
+          path: .upstream/remuda
+          fetch-depth: 0
+      - name: Install remuda
+        run: cd .upstream/remuda && clojure -T:build install
+      - name: Check out darkstar
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: brettatoms/darkstar
+          path: .upstream/darkstar
+          fetch-depth: 0
+      - name: Install darkstar
+        run: cd .upstream/darkstar && clojure -T:build install
+      - name: Lint
+        run: clojure -M:clj-kondo --lint src examples
+      - name: Check formatting
+        run: clojure -M:cljfmt check src examples
+
+  release:
+    needs: [checks]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: clojars-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Full history so build.clj can derive the version from the git rev count.
+          fetch-depth: 0
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - name: Setup Clojure
+        uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d # 13.6.1
+        with:
+          cli: '1.12.0.1479'
+      - name: Cache All The Things
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.clojure
+            ~/.cpcache
+          key: ${{ runner.os }}-${{ hashFiles('**/deps.edn') }}
+      # These libraries depend on each other by released coordinate. Until they
+      # are on Clojars, check out and install the upstream ones so the build can
+      # resolve them.
+      - name: Check out remuda
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: brettatoms/remuda
+          path: .upstream/remuda
+          fetch-depth: 0
+      - name: Install remuda
+        run: cd .upstream/remuda && clojure -T:build install
+      - name: Check out darkstar
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: brettatoms/darkstar
+          path: .upstream/darkstar
+          fetch-depth: 0
+      - name: Install darkstar
+        run: cd .upstream/darkstar && clojure -T:build install
+      - name: Deploy Release
+        run: |
+          clojure -T:build jar :snapshot false
+          clojure -T:build deploy :snapshot false
+        env:
+          CLOJARS_PASSWORD: ${{secrets.DEPLOY_TOKEN}}
+          CLOJARS_USERNAME: ${{secrets.DEPLOY_USERNAME}}
