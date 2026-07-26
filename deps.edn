@@ -1,11 +1,14 @@
 {:paths ["src"]
  ;; The zodiac wiring, and nothing else. Integrant keys, routes and request-context
  ;; injection — no domain logic, following zodiac-hot-reload's shape. If this grows
- ;; past wiring, §2.1's map-of-pieces design has failed.
+ ;; past wiring, the map-of-pieces design has failed.
  ;;
+ ;; Sibling pins are the mutable SNAPSHOT while nothing is released. When the
+ ;; libraries are tagged, these should become fixed versions — a published artifact
+ ;; depending on a moving snapshot is fine for development and wrong for a release.
  :deps {org.clojure/clojure {:mvn/version "1.12.5"}
-        com.github.brettatoms/remuda {:mvn/version "0.1.40"}
-        com.github.brettatoms/darkstar {:mvn/version "0.1.4"}
+        com.github.brettatoms/remuda {:mvn/version "0.1.9999-SNAPSHOT"}
+        com.github.brettatoms/darkstar {:mvn/version "0.1.9999-SNAPSHOT"}
         com.github.brettatoms/zodiac {:mvn/version "1.0.119"}
         integrant/integrant {:mvn/version "1.0.1"}
         org.clojure/tools.logging {:mvn/version "1.3.1"}}
