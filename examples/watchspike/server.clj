@@ -218,6 +218,18 @@ h3 { margin:0 0 var(--space); font-size:14px; text-transform:uppercase;
       [:style css]]
      [:body
       [:p {:style "color:#8b93a7"} "channel " channel-id " · you are " [:b username]]
+      ;; An uncontrolled input, kept as a standing reconnect test. The server never
+      ;; holds its value. Verified: typing here, killing the JVM and letting Datastar
+      ;; reconnect leaves the text intact — no `:recoverable` tier, no snapshot, no
+      ;; replay. The DOM is the store.
+      ;;
+      ;; Also verified, by deliberately putting an input INSIDE the roster fragment:
+      ;; Datastar's patcher MORPHS rather than replaces, so `value` and even keyboard
+      ;; focus survive a patch that rewrites the surrounding markup. Server-declared
+      ;; attributes are reconciled; live DOM properties are left alone.
+      [:input {:id "draft" :placeholder "type something, then watch a reconnect"
+               :autocomplete "off"
+               :style "width:320px;padding:8px;margin-bottom:12px;background:#1b1e27;color:#e6e8ee;border:1px solid #2b3040;border-radius:8px"}]
       [:div {:id "live-root"} "connecting…"]
       [:div {:data-init (str "@get('/live?c=" channel-id "&u=" username
                              "', {requestCancellation: 'cleanup'})")}]]]]))
