@@ -12,7 +12,7 @@
                    {:online? (presence/online? channel-id username)})
       :subscribe (fn [{:keys [params]}]            ; …so watch this topic…
                    [[:presence channel-id username]])
-      :render    (fn [view] (render/boundary [] …)) ; …and patch this region
+      :render    (fn [view] (render/boundary [] …)) ; …and patch this fragment
 
   Here there is one function, and the dependency appears once — at the point of use:
 
@@ -25,7 +25,7 @@
 
   ## What is still the author's job
 
-  The region id and the element's `:id` must match. `watch/region` cannot check that,
+  The fragment id and the element's `:id` must match. `watch/fragment` cannot check that,
   because only the author knows the markup — so both come from `member-id` below,
   which is the whole discipline. That is the same rule the direct (no-engine) version
   follows, and for the same reason: a target you *name* cannot drift from the element,
@@ -34,7 +34,7 @@
             [chat.presence :as presence]))
 
 (defn member-id
-  "The row's DOM id, used by both the render and the region.
+  "The row's DOM id, used by both the render and the fragment.
 
   One function, two call sites — which is what makes the patch target and the
   rendered element the same string by construction."
@@ -47,7 +47,7 @@
   Callable outside an engine, because `watch` outside a recording is just a read —
   so this is testable at a REPL with nothing else running."
   [channel-id username]
-  (watch/region
+  (watch/fragment
    (member-id username)
    (fn []
      (let [online? (watch/watch [:presence channel-id username]
@@ -66,14 +66,18 @@
   than letting that pass, but writing it correctly is better than relying on the
   guard."
   [channel-id members]
-  (watch/region
+  (watch/fragment
    "roster"
    (fn []
-     [:aside {:class "roster"}
+     ;; The id belongs on the element the fragment names, which is this `<aside>`.
+     ;; It was on the inner `<ul>` until `watch/fragment` started checking: every
+     ;; patch would have replaced the `<ul>` with an `<aside>`, nesting the sidebar
+     ;; inside itself once per update.
+     [:aside {:id "roster" :class "roster"}
       [:h3 {:class "roster__title"}
        "Members"
-       (watch/region "roster-count"
-                     (fn [] [:span {:id "roster-count" :class "roster__count"}
-                             (count members)]))]
-      [:ul {:id "roster" :class "roster__list"}
+       (watch/fragment "roster-count"
+                       (fn [] [:span {:id "roster-count" :class "roster__count"}
+                               (count members)]))]
+      [:ul {:class "roster__list"}
        (mapv #(row channel-id %) members)]])))
