@@ -64,10 +64,18 @@
 ;;; Integrant components
 ;;; ==========================================================================
 
-(defmethod ig/init-key ::engine [_ {:keys [components render-fn]}]
+(declare sync-children!)
+
+(defmethod ig/init-key ::engine [_ {:keys [components render-fn bus]}]
   (log/debug "Starting zodiac-live engine")
   (engine/start!
    (engine/engine {:components components
+                   ;; Children are mounted by the engine, which knows nothing about
+                   ;; PubSub, so it reports what changed and this establishes their
+                   ;; subscriptions. Without it a child renders once and never
+                   ;; updates.
+                   :on-children (fn [eng reconciled]
+                                  (sync-children! {:bus bus} eng reconciled))
                    ;; Fragment caching is entry point 2 of the cache: content
                    ;; addressed, so it needs no declaration and cannot leak
                    ;;.
@@ -220,6 +228,30 @@
     (throw (ex-info "no bus in the zodiac-live context" {:got (keys live)})))
   (pubsub/subscribe-context! subscriptions (:bus live) id topics))
 
+(defn sync-children!
+  "Subscribes newly mounted live children and unsubscribes unmounted ones.
+
+  A child declares `:subscribe` like any component, but nothing calls it: children
+  are mounted by the engine, which deliberately knows nothing about PubSub. So the
+  engine reports what it mounted and unmounted, and this closes the loop.
+
+  Without it a child renders correctly and then never updates — its subscription was
+  declared and never established. Worse, an unmounted child's subscription would
+  outlive it, so hints would keep waking a context that no longer exists.
+
+  `reconciled` is what `remuda.engine/reconcile-children!` returns. Call after
+  anything that can change the child set: mount, reconnect, or a dispatch whose
+  render adds or removes children."
+  [live eng reconciled]
+  (doseq [cid (:unmounted reconciled)]
+    (pubsub/unsubscribe-context! subscriptions cid))
+  (doseq [cid (concat (vals (:mounted reconciled)) (vals (:updated reconciled)))]
+    (when-let [ctx (engine/live-context eng cid)]
+      (when-let [f (:subscribe (:component ctx))]
+        (when-let [topics (seq (f {:params (:params ctx)}))]
+          (subscribe! live cid topics)))))
+  reconciled)
+
 (defn recovery-snapshot
   "A signed recovery snapshot for `id`, for the caller to send to the browser."
   [system id secret]
@@ -283,7 +315,8 @@
   {:pre [(map? components) (ifn? render-fn) (ifn? sse-fn)]}
   (fn [config]
     (-> config
-        (assoc ::engine {:components components :render-fn render-fn}
+        (assoc ::engine {:components components :render-fn render-fn
+                         :bus (ig/ref ::bus)}
                ::bus {:bus bus}
                ::flusher {:engine (ig/ref ::engine)
                           :bus (ig/ref ::bus)

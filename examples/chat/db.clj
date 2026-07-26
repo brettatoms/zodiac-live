@@ -34,6 +34,18 @@
                          created_at integer not null)"])
   (z.sql/execute! db ["create index if not exists idx_msg_channel
                          on messages(channel_id, id)"])
+  ;; Membership is DURABLE, unlike presence. Someone who joins stays in the roster
+  ;; forever; only the connected indicator changes when they come and go. Deriving
+  ;; the roster from presence alone made members vanish on disconnect, which is not
+  ;; what a roster is for.
+  ;;
+  ;; Keyed on the pair, because a username identifies a person only within one
+  ;; channel — `alice` in #general and `alice` in #random are unrelated people.
+  (z.sql/execute! db ["create table if not exists members (
+                         channel_id text not null,
+                         username text not null,
+                         joined_at integer not null,
+                         primary key (channel_id, username))"])
   nil)
 
 ;;; ==========================================================================
@@ -119,6 +131,48 @@
                       :created-at (or (:created-at r) (:created_at r)
                                       (:messages/created-at r))}))))
 
+(defn add-member!
+  "Records that `username` belongs to `channel-id`. Idempotent.
+
+  `insert or ignore` rather than a read-then-write: two tabs joining at once would
+  otherwise race, and the first `joined_at` is the one worth keeping."
+  [db channel-id username]
+  (z.sql/execute! db ["insert or ignore into members (channel_id, username, joined_at)
+                       values (?, ?, ?)"
+                      channel-id username (System/currentTimeMillis)])
+  nil)
+
+(defn members
+  "Every username ever in `channel-id`, sorted.
+
+  Sorted so the value is stable across reads: an unordered result would make every
+  refresh look like a change and defeat the diff."
+  [db channel-id]
+  (->> (z.sql/execute! db {:select [:username]
+                           :from :members
+                           :where [:= :channel_id channel-id]
+                           :order-by [[:username :asc]]})
+       (mapv (fn [r] (or (:username r) (:members/username r))))
+       (filterv some?)))
+
+(defn authors
+  "Distinct message authors in `channel-id`, sorted.
+
+  Half of the member roster; the other half is who is currently connected. Needs no
+  schema change, and means a member who has posted stays in the sidebar after they
+  disconnect.
+
+  Sorted so the value is stable across reads, for the same reason
+  `chat.presence/connected` sorts: an unordered result makes every refresh look
+  like a change."
+  [db channel-id]
+  (->> (z.sql/execute! db {:select-distinct [:author]
+                           :from :messages
+                           :where [:= :channel_id channel-id]
+                           :order-by [[:author :asc]]})
+       (mapv (fn [r] (or (:author r) (:messages/author r))))
+       (filterv some?)))
+
 (defn ->source
   "A `Source` over the zodiac-sql db.
 
@@ -127,6 +181,8 @@
   - `[:messages id before]` -> up to 50 messages older than `before`, oldest
                                first; `before` of `nil` means the newest page
   - `[:count-before id b]`  -> how many older messages remain
+  - `[:authors id]`         -> distinct message authors, sorted
+  - `[:members id]`         -> every username ever in the channel, sorted
 
   `basis` returns `nil`: SQLite keeps no history, so it cannot honour a basis
   token, and such a store should say so rather than pretend."
@@ -138,6 +194,8 @@
         :channel (channel db id)
         :messages (page db id before)
         :count-before (count-before db id before)
+        :authors (authors db id)
+        :members (members db id)
         nil))
     (basis [_] nil)))
 

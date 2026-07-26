@@ -10,8 +10,9 @@
 
 (function () {
   var KEY = null;          // CryptoKey, once imported
-  var CHANNEL = null;      // channel id, from the path
-  var USERNAME = null;
+  var CHANNEL = null;      // channel id, from the signed session token
+  var USERNAME = null;     // ditto — never from a query param
+  var TOKEN = null;        // the signed session token itself
 
   // --- key handling -------------------------------------------------------
 
@@ -103,11 +104,10 @@
       // makes OTHER users see "bob is typing...". Ephemeral because a hint carries
       // no data (§7.2) and "who is typing" is data — so it lives server-side and
       // the hint stays empty.
+      // Only the ephemeral half. The component's own :draft is updated by a
+      // darkstar action bound in the render, because datastar sends the liveId
+      // signal with its actions and a plain fetch like this one does not.
       var body = JSON.stringify({ liveId: window.__liveId, text: text });
-      var opts = { method: 'POST',
-                   headers: { 'content-type': 'application/json' },
-                   body: body };
-      fetch('/live/act?event=typing', opts);
       fetch('/typing', { method: 'POST',
                          headers: { 'content-type': 'application/json' },
                          body: body });
@@ -122,9 +122,9 @@
     await fetch('/send', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        channel: CHANNEL, author: USERNAME, ct: enc.ct, iv: enc.iv
-      })
+      // No author field: the server reads it from the signed token. Sending it
+      // here would mean the server trusting a value the client can edit.
+      body: JSON.stringify({ t: TOKEN, ct: enc.ct, iv: enc.iv })
     });
   };
 
@@ -137,21 +137,116 @@
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: name })
     });
-    var { id } = await res.json();
+    var invite = (await res.json()).invite;
+    // Mint a session for the creator through the same endpoint everyone else
+    // uses, so there is one join path rather than two.
+    var joined = await fetch('/join', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ invite: invite, username: user })
+    });
+    var token = (await joined.json()).token;
     // The key goes in the fragment, so it never reaches the server.
-    location.href = '/c/' + id + '?user=' + encodeURIComponent(user) +
-                    '#k=' + k.b64;
+    location.href = '/c/' + token + '#k=' + k.b64;
+  };
+
+  // Join from an invite link. The key is in *this* page's fragment and has to be
+  // carried across the redirect by the client — the server never sees it.
+  window.chatJoin = async function (invite) {
+    var user = document.getElementById('username').value || 'anon';
+    var res = await fetch('/join', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ invite: invite, username: user })
+    });
+    if (!res.ok) { alert('That invite is not valid.'); return; }
+    var token = (await res.json()).token;
+    location.href = '/c/' + token + location.hash;
+  };
+
+  // --- invite -------------------------------------------------------------
+
+  // The invite URL is the button's `data-invite` path plus THIS page's key
+  // fragment. Deliberately not `location.href`: that is a *session* URL naming
+  // one user, so sharing it made every recipient that user. The invite token
+  // names the channel only.
+  function inviteUrl(btn) {
+    // The key lives in the fragment and must ride along, or the recipient can
+    // join but not read.
+    return location.origin + btn.dataset.invite + location.hash;
+  }
+
+  window.chatCopyInvite = async function (btn) {
+    var label = btn.dataset.label || btn.textContent;
+    btn.dataset.label = label;
+    var box = document.getElementById('invite-fallback');
+
+    function done(text, ok) {
+      btn.textContent = text;
+      btn.classList.toggle('is-copied', ok);
+      setTimeout(function () {
+        btn.textContent = label;
+        btn.classList.remove('is-copied');
+      }, 2000);
+    }
+
+    // Try the async clipboard first, then the selection-based fallback. Both can
+    // be refused — the async API needs a secure context and a recent user
+    // gesture, and execCommand is deprecated but still permitted in places the
+    // newer API is not.
+    try {
+      await navigator.clipboard.writeText(inviteUrl(btn));
+      if (box) box.hidden = true;
+      done('Copied', true);
+      return;
+    } catch (e) { /* fall through */ }
+
+    if (box) {
+      box.hidden = false;
+      box.value = inviteUrl(btn);
+      box.focus();
+      box.select();
+      try {
+        if (document.execCommand('copy')) {
+          box.hidden = true;
+          done('Copied', true);
+          return;
+        }
+      } catch (e2) { /* fall through */ }
+      // Leave the field visible and selected so the link can be copied by hand.
+      // The wording says "below" because that is where the field renders.
+      done('Press \u2318C \u2014 link selected below', false);
+      return;
+    }
+    done('Copy failed', false);
   };
 
   // --- boot ---------------------------------------------------------------
 
-  window.chatBoot = async function (channelId, username) {
+  // Presence heartbeat. There is no reliable disconnect signal from the server's
+  // transport, so being connected is expressed as a recent ping: stop pinging and
+  // the TTL turns the dot grey on its own. Interval is well under the server's TTL
+  // so one dropped request does not flicker.
+  function startHeartbeat() {
+    var beat = function () {
+      fetch('/heartbeat', { method: 'POST',
+                            headers: { 'content-type': 'application/json' },
+                            body: JSON.stringify({ t: TOKEN }) })
+        .catch(function () { /* a missed beat is covered by the next one */ });
+    };
+    beat();
+    setInterval(beat, 5000);
+  }
+
+  window.chatBoot = async function (channelId, username, token) {
     CHANNEL = channelId;
     USERNAME = username;
+    TOKEN = token;
+    startHeartbeat();
     var m = location.hash.match(/k=([A-Za-z0-9_-]+)/);
     if (!m) {
       document.body.insertAdjacentHTML('afterbegin',
-        '<p style="color:#b00">No key in the URL fragment. ' +
+        '<p class="banner banner--error">No key in the URL fragment. ' +
         'You need the full invite link to read this channel.</p>');
       return;
     }
