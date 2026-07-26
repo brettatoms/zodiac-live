@@ -1,11 +1,11 @@
-# zodiac-live
+# Zodiac Live
 
 [Zodiac](https://github.com/brettatoms/zodiac) extension for
-[remuda](https://github.com/brettatoms/remuda) +
-[darkstar](https://github.com/brettatoms/darkstar).
+[Remuda](https://github.com/brettatoms/remuda) +
+[Darkstar](https://github.com/brettatoms/darkstar).
 
 Wiring only: integrant keys, two routes, and request-context injection. No domain
-logic. remuda holds the view state, darkstar translates changes into Datastar
+logic. Remuda holds the view state, Darkstar translates changes into Datastar
 patches, and this connects both to a Zodiac app.
 
 ## Usage
@@ -32,10 +32,9 @@ patches, and this connects both to a Zodiac app.
 `:async? true` and `:async-timeout 0` are required. The SSE route holds a
 connection open, so it must not occupy a request worker or time out.
 
-Register components as **vars** (`#'app/chat`, not `app/chat`). The engine resolves
-a component by name on every render and derefs it, so redefining `:render` at a
-REPL reaches connections that are already open. A plain map works but only
-whole-map replacement is visible.
+Register components as **vars** (`#'app/chat`). The engine resolves a component by
+name on every render and derefs it, so redefining `:render` at a REPL reaches
+connections that are already open.
 
 ## What it wires
 
@@ -44,9 +43,8 @@ whole-map replacement is visible.
 - an SSE route (`/live`) and an action route (`/live/act`), both CSRF-exempt
 - a flush loop that turns coalesced invalidation hints into pushes
 
-Registries are held in `defonce`d atoms rather than created per `init-key`, so they
-survive `tools.namespace/refresh`. Recreating them on reload would drop every
-connection.
+The live-context registry, subscriptions and cache are held in `defonce`d atoms, so
+they survive `tools.namespace/refresh` with connections intact.
 
 ## Example app
 
@@ -59,18 +57,17 @@ clojure -M:example -m chat.server
 
 The encryption key lives in the URL fragment, which browsers do not transmit, so
 the server stores ciphertext it cannot read. Messages are held in SQLite behind
-remuda's `Source` protocol; typing indicators are ephemeral server state published
+Remuda's `Source` protocol; typing indicators are ephemeral server state published
 as hints.
 
-`CHAT_LIVE_SECRET` and `CHAT_COOKIE_SECRET` are read from the environment and
-default to per-process random values, so restarting invalidates outstanding
-snapshots and sessions. Set them to keep those across restarts.
+The signing keys are committed so the demo runs with no setup. Override them with
+`CHAT_LIVE_SECRET` and `CHAT_COOKIE_SECRET`.
 
 ## Related
 
-- [remuda](https://github.com/brettatoms/remuda) — the engine: view state,
+- [Remuda](https://github.com/brettatoms/remuda) — the engine: view state,
   diffing, tiers, reconnect
-- [darkstar](https://github.com/brettatoms/darkstar) — Datastar binding, and notes
+- [Darkstar](https://github.com/brettatoms/darkstar) — Datastar binding, and notes
   on what this model suits
 
 ## Status

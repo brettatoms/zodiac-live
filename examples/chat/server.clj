@@ -11,7 +11,6 @@
   then open http://localhost:3000"
   (:require [charred.api :as charred]
             [clojure.java.io :as io]
-            [clojure.string :as str]
             [dev.onionpancakes.chassis.core :as chassis]
             [starfederation.datastar.clojure.api :as d*]
             [starfederation.datastar.clojure.adapter.ring :as d*ring]
@@ -25,19 +24,17 @@
             [remuda.source :as source])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
-(def secret
-  "HMAC key for recovery snapshots.
+;;; These are committed on purpose: this is a demo, and `clojure -M:example -m
+;;; chat.server` should just work. Both are overridable by environment variable,
+;;; and neither should be used anywhere real.
 
-  Read from the environment rather than hardcoded, so this example does not model
-  committing a key. The fallback is a fresh random value per process, which is the
-  safe default: the worst case is that a snapshot issued by a previous run fails to
-  verify and the client remounts."
-  (or (System/getenv "CHAT_LIVE_SECRET") (str (random-uuid))))
+(def secret
+  "HMAC key for recovery snapshots."
+  (or (System/getenv "CHAT_LIVE_SECRET") "chat-example-secret-not-for-production"))
 
 (def cookie-secret
-  "Zodiac requires exactly 16 bytes."
-  (or (System/getenv "CHAT_COOKIE_SECRET")
-      (subs (str/replace (str (random-uuid)) "-" "") 0 16)))
+  "Session cookie key. Zodiac requires exactly 16 bytes."
+  (or (System/getenv "CHAT_COOKIE_SECRET") "0123456789abcdef"))
 
 (defonce ^{:doc "live id -> latch, keeping each async SSE connection alive."}
   latches
