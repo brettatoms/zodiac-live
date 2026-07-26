@@ -13,6 +13,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: zodiac-live
+      # These libraries depend on each other by released coordinate so that a
+      # published artifact resolves. That version does not exist until it is on
+      # Clojars, and it moves with every upstream commit, so the :dev alias
+      # overrides them with :local/root — which needs the siblings checked out
+      # alongside this repo.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: brettatoms/remuda
+          path: remuda
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: brettatoms/darkstar
+          path: darkstar
       - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
         with:
           distribution: 'temurin'
@@ -30,29 +45,12 @@ jobs:
             ~/.clojure
             ~/.cpcache
           key: ${{ runner.os }}-${{ hashFiles('**/deps.edn') }}
-      # These libraries depend on each other by released coordinate. Until they
-      # are on Clojars, check out and install the upstream ones so the build can
-      # resolve them.
-      - name: Check out remuda
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          repository: brettatoms/remuda
-          path: .upstream/remuda
-          fetch-depth: 0
-      - name: Install remuda
-        run: cd .upstream/remuda && clojure -T:build install
-      - name: Check out darkstar
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          repository: brettatoms/darkstar
-          path: .upstream/darkstar
-          fetch-depth: 0
-      - name: Install darkstar
-        run: cd .upstream/darkstar && clojure -T:build install
       - name: Lint
-        run: clojure -M:clj-kondo --lint src examples
+        working-directory: zodiac-live
+        run: clojure -M:dev:clj-kondo --lint src examples
       - name: Check formatting
-        run: clojure -M:cljfmt check src examples
+        working-directory: zodiac-live
+        run: clojure -M:dev:cljfmt check src examples
 
   release:
     needs: [checks]
@@ -63,8 +61,22 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          # Full history so build.clj can derive the version from the git rev count.
+          # Full history so build.clj can derive the version from the rev count.
           fetch-depth: 0
+          path: zodiac-live
+      # These libraries depend on each other by released coordinate so that a
+      # published artifact resolves. That version does not exist until it is on
+      # Clojars, and it moves with every upstream commit, so the :dev alias
+      # overrides them with :local/root — which needs the siblings checked out
+      # alongside this repo.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: brettatoms/remuda
+          path: remuda
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: brettatoms/darkstar
+          path: darkstar
       - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
         with:
           distribution: 'temurin'
@@ -82,26 +94,9 @@ jobs:
             ~/.clojure
             ~/.cpcache
           key: ${{ runner.os }}-${{ hashFiles('**/deps.edn') }}
-      # These libraries depend on each other by released coordinate. Until they
-      # are on Clojars, check out and install the upstream ones so the build can
-      # resolve them.
-      - name: Check out remuda
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          repository: brettatoms/remuda
-          path: .upstream/remuda
-          fetch-depth: 0
-      - name: Install remuda
-        run: cd .upstream/remuda && clojure -T:build install
-      - name: Check out darkstar
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          repository: brettatoms/darkstar
-          path: .upstream/darkstar
-          fetch-depth: 0
-      - name: Install darkstar
-        run: cd .upstream/darkstar && clojure -T:build install
       - name: Deploy Release
+        # Build in this job before deploying: deploy reuses target/, which the separate test jobs do not share.
+        working-directory: zodiac-live
         run: |
           clojure -T:build jar :snapshot false
           clojure -T:build deploy :snapshot false

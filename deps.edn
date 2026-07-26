@@ -27,6 +27,11 @@
                   :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}
                   :main-opts ["-m" "kaocha.runner"]}
 
+           ;; clojure -M:dev:... — resolve sibling libraries from the working tree
+           ;; rather than a released version. See darkstar's :dev alias.
+           :dev {:override-deps {com.github.brettatoms/remuda {:local/root "../remuda"}
+                                 com.github.brettatoms/darkstar {:local/root "../darkstar"}}}
+
            ;; clojure -T:build jar | deploy
            :build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.14"}
                           slipset/deps-deploy {:mvn/version "0.2.5"}}
