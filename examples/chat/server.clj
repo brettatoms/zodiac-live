@@ -132,8 +132,8 @@
               (deliver id* id)
               (swap! connection-info assoc id {:channel-id channel-id
                                                :username username})
-              ;; Durable membership, so the roster keeps this person after they
-              ;; disconnect. Idempotent, so reconnecting is free.
+              ;; Idempotent: the name was claimed at join time, so this covers a
+              ;; reconnect or a second tab for someone who already holds it.
               (db/add-member! (get-in request [::z/context ::z.sql/db])
                               channel-id username)
               (let [newly-online? (presence/touch! channel-id username)]
@@ -209,7 +209,9 @@
     [:em "fragment"] ", which is never sent to the server. Share the whole link."]
    [:p [:input {:id "channel-name" :placeholder "Channel name"}]]
    [:p [:input {:id "username" :placeholder "Your name"}]]
-   [:p [:button {:onclick "window.chatCreate()"} "Create channel"]]))
+   [:p [:button {:class "btn btn--primary"
+                 :onclick "window.chatCreate()"} "Create channel"]]
+   [:script (chassis/raw "window.chatBindKeys()")]))
 
 (defn channel-page
   "The live channel, addressed by a signed session token.
@@ -264,25 +266,41 @@
        [:p [:input {:id "username" :placeholder "Your name"}]]
        [:p [:button {:class "btn btn--primary"
                      :onclick (str "window.chatJoin(" (pr-str t) ")")}
-            "Join"]]))))
+            "Join"]]
+       [:script (chassis/raw (format "window.chatBindKeys(%s)" (pr-str t)))]))))
 
 (defn join
-  "Mints a session token for `[channel-id username]` from a valid invite."
-  [{:keys [body-params]}]
-  (let [{:keys [invite username]} body-params
+  "Claims a username in a channel and mints a session token.
+
+  **A name is claimed exactly once per channel.** Refusing a duplicate is the point:
+  a username is the only identity in this model, so letting a second person enter an
+  existing name would make them that person. The claim is enforced by a primary key
+  rather than a read-then-write, so two simultaneous joins cannot both succeed.
+
+  Returns 409 with `{:error \"username-taken\"}` so the client can show the message
+  beside the field the user typed into."
+  [{:keys [body-params] :as request}]
+  (let [db (get-in request [::z/context ::z.sql/db])
+        {:keys [invite username]} body-params
         channel-id (token/read-invite secret invite)
         name' (let [n (str/trim (or username ""))]
                 (if (str/blank? n) "anon" (subs n 0 (min 24 (count n)))))]
-    (if-not channel-id
-      {:status 403 :body "invalid invite"}
+    (cond
+      (not channel-id)
+      {:status 403
+       :headers {"content-type" "application/json"}
+       :body (charred/write-json-str {:error "invalid-invite"})}
+
+      (not (db/claim-member! db channel-id name'))
+      {:status 409
+       :headers {"content-type" "application/json"}
+       :body (charred/write-json-str {:error "username-taken" :username name'})}
+
+      :else
       {:status 200
        :headers {"content-type" "application/json"}
        :body (charred/write-json-str
               {:token (token/session secret channel-id name')})})))
-
-;;; ==========================================================================
-;;; Non-live routes
-;;; ==========================================================================
 
 (defn- json-handler
   "Wraps a handler so an exception is logged and returned, rather than becoming an

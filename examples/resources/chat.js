@@ -152,14 +152,48 @@
 
   // Join from an invite link. The key is in *this* page's fragment and has to be
   // carried across the redirect by the client — the server never sees it.
+  function showFieldError(inputId, message) {
+    var input = document.getElementById(inputId);
+    if (!input) return;
+    var box = document.getElementById(inputId + '-error');
+    if (!box) {
+      box = document.createElement('p');
+      box.id = inputId + '-error';
+      box.className = 'field-error';
+      input.insertAdjacentElement('afterend', box);
+    }
+    box.textContent = message;
+    input.setAttribute('aria-invalid', 'true');
+    input.focus();
+    input.select();
+  }
+
+  function clearFieldError(inputId) {
+    var box = document.getElementById(inputId + '-error');
+    if (box) box.textContent = '';
+    var input = document.getElementById(inputId);
+    if (input) input.removeAttribute('aria-invalid');
+  }
+
   window.chatJoin = async function (invite) {
     var user = document.getElementById('username').value || 'anon';
+    clearFieldError('username');
     var res = await fetch('/join', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ invite: invite, username: user })
     });
-    if (!res.ok) { alert('That invite is not valid.'); return; }
+    if (res.status === 409) {
+      // A username identifies a person within a channel, so a taken name cannot be
+      // granted twice — that would be impersonation. Reported beside the field
+      // rather than in an alert, so the user can just edit and retry.
+      var body = await res.json().catch(function () { return {}; });
+      showFieldError('username',
+                     '"' + (body.username || user) + '" is already taken in this ' +
+                     'channel. Pick another name.');
+      return;
+    }
+    if (!res.ok) { showFieldError('username', 'That invite is not valid.'); return; }
     var token = (await res.json()).token;
     location.href = '/c/' + token + location.hash;
   };
@@ -219,6 +253,30 @@
       return;
     }
     done('Copy failed', false);
+  };
+
+  // --- keyboard -----------------------------------------------------------
+
+  // Enter submits. These pages use plain buttons rather than a <form>, so nothing
+  // gives Enter its usual meaning — and typing a name then pressing Enter is what
+  // everyone does. Bound by id so it applies to whichever page is loaded.
+  function onEnter(inputId, fn) {
+    var el = document.getElementById(inputId);
+    if (!el) return;
+    el.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); fn(); }
+    });
+  }
+
+  window.chatBindKeys = function (invite) {
+    // Create-channel page: Enter in either field creates.
+    onEnter('channel-name', function () { window.chatCreate(); });
+    if (invite) {
+      // Invite page: Enter joins.
+      onEnter('username', function () { window.chatJoin(invite); });
+    } else {
+      onEnter('username', function () { window.chatCreate(); });
+    }
   };
 
   // --- boot ---------------------------------------------------------------

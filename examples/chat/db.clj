@@ -131,11 +131,50 @@
                       :created-at (or (:created-at r) (:created_at r)
                                       (:messages/created-at r))}))))
 
+(defn claim-member!
+  "Claims `username` in `channel-id`. Returns true if the claim succeeded.
+
+  **A username is claimed exactly once per channel.** Returning false means
+  somebody already has it, so the caller must refuse rather than issue a token —
+  otherwise a second person entering an existing name simply becomes that person,
+  and since a username is the only identity in this model, that is impersonation.
+
+  The uniqueness is enforced by the `(channel_id, username)` primary key rather
+  than by a read-then-write check, so two simultaneous joins cannot both win. That
+  matters: a check-then-insert has a window between the two, and this is exactly
+  the kind of race an attacker would retry into.
+
+  `insert or ignore` would be wrong here — it reports success on a duplicate, which
+  is the whole failure being prevented. So the insert is allowed to violate the
+  constraint and the exception is the answer."
+  [db channel-id username]
+  (try
+    (z.sql/execute! db ["insert into members (channel_id, username, joined_at)
+                         values (?, ?, ?)"
+                        channel-id username (System/currentTimeMillis)])
+    true
+    (catch Exception e
+      ;; Only a uniqueness violation means "taken". Anything else is a real error
+      ;; and must not be reported as a name collision.
+      (if (re-find #"(?i)unique|constraint" (str (ex-message e)))
+        false
+        (throw e)))))
+
+(defn member?
+  "Is `username` already claimed in `channel-id`?"
+  [db channel-id username]
+  (boolean (seq (z.sql/execute! db {:select [:username]
+                                    :from :members
+                                    :where [:and
+                                            [:= :channel_id channel-id]
+                                            [:= :username username]]
+                                    :limit 1}))))
+
 (defn add-member!
   "Records that `username` belongs to `channel-id`. Idempotent.
 
-  `insert or ignore` rather than a read-then-write: two tabs joining at once would
-  otherwise race, and the first `joined_at` is the one worth keeping."
+  For a member who already holds a claim — a reconnect, or a second tab. Use
+  `claim-member!` when granting a *new* identity."
   [db channel-id username]
   (z.sql/execute! db ["insert or ignore into members (channel_id, username, joined_at)
                        values (?, ?, ?)"
