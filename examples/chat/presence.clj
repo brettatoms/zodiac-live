@@ -46,14 +46,64 @@
 
   ## Why a heartbeat rather than connect/disconnect bookkeeping
 
-  There is no reliable disconnect signal to hang cleanup on. Verified against a
-  bare Jetty + Ring datastar adapter, with none of this application in the way:
-  `on-close` fires on an orderly shutdown but **not** when a client simply
-  disappears, and writing to the dead socket afterwards neither triggers it nor
-  throws — Jetty buffers the write and reports nothing.
+  Retested across transports, because an earlier version of this docstring got the
+  reason wrong. It claimed `on-close` fires on an orderly shutdown but not when a
+  client vanishes. What actually happens, measured with bare adapters and no
+  application in the way:
 
-  So liveness is a timing property, not an event. That is the same conclusion
-  `chat.typing` reached for the same reason, and the same shape of fix."
+  | case | Jetty | http-kit |
+  |---|---|---|
+  | polite close (FIN), server not writing | no signal | no signal |
+  | polite close, server writing every second | **fires** | no signal |
+  | client SIGKILLed (RST), server writing | **fires** | no signal |
+  | black hole: socket open, peer never reads | no signal | no signal |
+
+  Two conclusions, and only the second justifies a heartbeat:
+
+  1. The signal is **write-triggered and transport-dependent**. Jetty does report a
+     dead peer, but only once something writes to it; http-kit never did in any case
+     tested. So an app that wants to be transport-agnostic cannot rely on it.
+  2. The **black hole is undetectable** by any close callback — a closed laptop lid or
+     a dropped network sends nothing, and 30 seconds of writes disappeared silently.
+     Liveness there is a timing property, not an event.
+
+  Phoenix is not exempt from (2), which is worth knowing before treating this as a JVM
+  shortcoming: `phoenix/socket.js` heartbeats every 30s and Bandit reaps an idle
+  websocket on a server-side timeout — verified, 2 connections to 0 after 75s of
+  silence. The difference is that theirs lives in the transport and this lives here.
+
+  ## Orderly cleanup on the JVM: `ServerConnector.setIdleTimeout` plus a write
+
+  There IS a fix for the leaked-connection half of this, and it is not the obvious one.
+
+  What does not work, all measured against a black-holed socket (peer holding the
+  connection open, never reading):
+
+  - `:async-timeout`, at 0 or 20000, on platform threads or virtual threads. All four
+    combinations held the dead connection indefinitely. The async context is not idle
+    from Jetty's point of view, so the servlet-level timeout never fires.
+  - `SO_KEEPALIVE`. macOS defaults `net.inet.tcp.keepidle` to 7200000 — two hours
+    before the first probe, then 8 probes at 75s. Correct eventually, useless in
+    practice, and not exposed by `ServerConnector` anyway.
+
+  What does work: **`ServerConnector.setIdleTimeout` combined with a periodic
+  server->client write.**
+
+      :configurator (fn [server]
+                      (doseq [c (.getConnectors server)]
+                        (when (instance? ServerConnector c)
+                          (.setIdleTimeout c 15000))))
+
+  Measured with a 15s connector idle timeout:
+
+  | server behaviour | dead connection after 35s |
+  |---|---|
+  | writes once a second | **reaped**, `on-close` fired |
+  | silent | still held (also still held at 65s) |
+
+  So the write is what discovers the peer, and the idle timeout is what acts on it.
+  Neither alone is enough. That makes a server-side keepalive tick a *transport*
+  concern rather than an application one — see darkstar."
   [channel-id username]
   (let [k [channel-id username]
         was (.put state k (System/currentTimeMillis))]
