@@ -61,6 +61,18 @@
                                     ring/ring-jetty-adapter {:mvn/version "1.14.2"}}
                        :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]}
 
+           ;; The build dashboard: 1 writer, N readers, with sibling fragments whose
+           ;; update rates differ by ~100x. Tests fan-out and pruning where a chat app
+           ;; cannot — see examples/dash/jobs.clj.
+           ;;
+           ;;   clojure -M:dev:dash -m dash.server   (port 3004)
+           :dash {:extra-paths ["examples" "examples/resources"]
+                  :extra-deps {com.cnuernber/charred {:mvn/version "1.041"}
+                               dev.data-star.clojure/ring {:mvn/version "1.0.0-RC11"}
+                               dev.onionpancakes/chassis {:mvn/version "1.0.365"}
+                               ring/ring-jetty-adapter {:mvn/version "1.14.2"}}
+                  :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]}
+
            ;; clojure -M:dev:... — resolve sibling libraries from the working tree
            ;; rather than a released version. See darkstar's :dev alias.
            :dev {:override-deps {com.github.brettatoms/remuda {:local/root "../remuda"}
