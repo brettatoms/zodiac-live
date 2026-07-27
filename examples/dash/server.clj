@@ -6,6 +6,8 @@
   moving parts means a surprise here is about `watch`, not about wiring.
 
       clojure -M:dev:dash -m dash.server     # port 3004"
+  (:import [java.util.concurrent ConcurrentHashMap Executors]
+           [java.util.concurrent.atomic LongAdder])
   (:require [charred.api :as charred]
             [clojure.java.io :as io]
             [dash.jobs :as jobs]
@@ -24,32 +26,76 @@
 ;;; question is whether fragment selection holds up at 10 hints a second, so the
 ;;; subscription side is kept as simple as possible.
 
-(defonce ^{:doc "topic -> #{conn-id}"} topic-subs (atom {}))
+(defonce ^{:doc "topic -> ConcurrentHashMap-backed set of conn-ids."}
+  topic-subs
+  (ConcurrentHashMap.))
 
-(defn- subscribe! [id topics]
-  (swap! topic-subs
-         (fn [m]
-           ;; Replace this connection's set, not merge into it: a dependency set
-           ;; shrinks as well as grows — collapsing a log unsubscribes its topic — and
-           ;; only adding would leave the connection woken by data it no longer shows.
-           (let [m (reduce-kv (fn [acc t ids]
-                                (let [ids (disj ids id)]
-                                  (if (seq ids) (assoc acc t ids) acc)))
-                              {} m)]
-             (reduce (fn [acc t] (update acc t (fnil conj #{}) id)) m topics)))))
+(defonce ^{:doc "conn-id -> the topic set it is currently subscribed to."}
+  conn-topics
+  (ConcurrentHashMap.))
+
+(defn- subscribe!
+  "Sets `id`'s subscriptions to exactly `topics`.
+
+  ## Why this is not one atom
+
+  It was: a single `topic -> #{conn-id}` atom, updated with a `swap!` that rebuilt the
+  whole map to remove this connection before re-adding it. That is O(topics) work per
+  refresh, serialized by CAS retries, and under parallel fan-out it became the
+  bottleneck rather than a fix for it — every worker thread contending on one atom,
+  each retry redoing the whole rebuild.
+
+  Now: a per-connection record of what it holds, so a change touches only the topics
+  that actually changed, and two `ConcurrentHashMap`s so unrelated topics never
+  contend. The common case — a refresh whose topic set is unchanged — does no work at
+  all."
+  [id topics]
+  (let [wanted (set topics)
+        current (or (.get conn-topics id) #{})]
+    (when-not (= wanted current)
+      (doseq [t current :when (not (contains? wanted t))]
+        (when-let [ids (.get topic-subs t)]
+          (.remove ^java.util.Set ids id)
+          (when (.isEmpty ^java.util.Set ids) (.remove topic-subs t))))
+      (doseq [t wanted :when (not (contains? current t))]
+        (-> (.computeIfAbsent topic-subs t
+                              (reify java.util.function.Function
+                                (apply [_ _] (ConcurrentHashMap/newKeySet))))
+            ^java.util.Set (.add id)))
+      (.put conn-topics id wanted))))
+
+(defn- subscribers
+  "Connection ids subscribed to `topic`, as a snapshot safe to iterate."
+  [topic]
+  (if-let [ids (.get topic-subs topic)] (vec ids) []))
 
 (defn- unsubscribe-all! [id]
-  (swap! topic-subs
-         (fn [m] (reduce-kv (fn [acc t ids]
-                              (let [ids (disj ids id)]
-                                (if (seq ids) (assoc acc t ids) acc)))
-                            {} m))))
+  (doseq [t (or (.get conn-topics id) #{})]
+    (when-let [ids (.get topic-subs t)]
+      (.remove ^java.util.Set ids id)
+      (when (.isEmpty ^java.util.Set ids) (.remove topic-subs t))))
+  (.remove conn-topics id))
 
 (declare eng)
 
-(defonce ^{:doc "Counts what the fan-out actually did, for the rate-spread report."}
+(defonce ^{:doc "Work-stealing pool for fan-out. Sized to the machine, since the work
+  is render-then-write per connection and mostly CPU."}
+  fanout-pool
+  (Executors/newWorkStealingPool))
+
+(defonce ^{:doc "Counts what the fan-out actually did, for the rate-spread report.
+
+  `LongAdder` rather than an atom: every worker thread increments these on every
+  refresh, and a shared `swap!` here would reintroduce exactly the contention removed
+  from `subscribe!` — measuring the instrumentation instead of the fan-out."}
   stats
-  (atom {:hints 0 :refreshes 0 :patches 0 :pruned 0}))
+  {:hints (LongAdder.) :refreshes (LongAdder.)
+   :patches (LongAdder.) :pruned (LongAdder.)})
+
+(defn- bump! [k ^long n] (.add ^LongAdder (get stats k) n))
+
+(defn- stats-snapshot []
+  (into {} (map (fn [[k ^LongAdder a]] [k (.sum a)])) stats))
 
 (defn publish!
   "Refreshes every connection subscribed to `topic` and pushes what changed.
@@ -71,26 +117,44 @@
   the limit is per-hint work rather than connection capacity. Nothing dropped and no
   connection went silent at any level.
 
-  Parallelising this is the obvious fix and is deliberately not done: the point of the
-  measurement was to find where the ceiling is, and a `pmap` here would hide it behind
-  8 cores rather than explain it. A real deployment would hand each subscriber's
-  refresh to an executor, or coalesce hints per connection the way
-  `remuda.pubsub`'s flush loop does — this app skips that loop on purpose so that
-  fragment selection is what is under test."
+  ## What was changed to lift it
+
+  Two things, and the second mattered more than the first:
+
+  1. **The fan-out runs on a work-stealing pool** rather than the caller's thread, so
+     renders and socket writes for different connections proceed in parallel.
+  2. **The subscription index is per connection** (see `subscribe!`). It used to be one
+     atom holding `topic -> #{conn-id}`, rebuilt wholesale on every refresh. Adding
+     threads to that made it *worse*, not better — every worker contending on one atom
+     with each CAS retry redoing an O(topics) rebuild. Parallelism exposed it; it was
+     already the wrong shape serially."
   [topic]
-  (swap! stats update :hints inc)
-  (doseq [id (get @topic-subs topic)]
-    (try
-      (let [{:keys [patches topics pruned]} (engine/refresh! eng id topic)]
-        (swap! stats (fn [s] (-> s
-                                 (update :refreshes inc)
-                                 (update :patches + (count patches))
-                                 (cond-> pruned (update :pruned inc)))))
-        ;; Re-subscribe on every refresh: expanding a log adds `[:log id]`, collapsing
-        ;; it removes it, and neither is known until the render has happened.
-        (when (seq topics) (subscribe! id topics)))
-      (catch Throwable e
-        (println "refresh failed" id (pr-str topic) (ex-message e))))))
+  (bump! :hints 1)
+  (let [ids (subscribers topic)]
+    (when (seq ids)
+      ;; `invokeAll` blocks until every subscriber is done, which keeps back-pressure:
+      ;; the simulation cannot outrun the fan-out and queue unbounded work. Firing and
+      ;; forgetting would produce better numbers and an ever-growing queue.
+      (.invokeAll
+       ^java.util.concurrent.ExecutorService fanout-pool
+       ^java.util.Collection
+       (mapv (fn [id]
+               (reify java.util.concurrent.Callable
+                 (call [_]
+                   (try
+                     (let [{:keys [patches topics pruned]} (engine/refresh! eng id topic)]
+                       (bump! :refreshes 1)
+                       (bump! :patches (count patches))
+                       (when pruned (bump! :pruned 1))
+                       ;; Re-subscribe on every refresh: expanding a log adds
+                       ;; `[:log id]`, collapsing it removes it, and neither is known
+                       ;; until the render has happened.
+                       (when (seq topics) (subscribe! id topics)))
+                     (catch Throwable e
+                       (println "refresh failed" id (pr-str topic) (ex-message e))))
+                   ;; `Callable` must return something; the value is unused.
+                   nil)))
+             ids)))))
 
 (def eng
   (engine/engine {:components {:dash #'view/component}
@@ -214,9 +278,9 @@ h1{font-size:18px;margin:0 0 var(--sp)}
     "/d/live" (live request)
     "/d/toggle" (toggle request)
     "/d/stats" {:status 200 :headers {"content-type" "text/plain"}
-                :body (str (pr-str @stats) "\n"
+                :body (str (pr-str (stats-snapshot)) "\n"
                            "connections=" (count @(:registry eng)) "\n"
-                           "topics=" (count @topic-subs) "\n")}
+                           "topics=" (.size topic-subs) "\n")}
     {:status 404 :body "nope"}))
 
 (defn async-handler [request respond _raise] (respond (handler request)))

@@ -49,10 +49,39 @@
   | 2,000 (45s) | 237,883 | 102 | 102% | 0 |
 
   Every connection stayed alive and receiving at every level, and the per-sample
-  progression was linear with no degradation. But throughput does not improve past
-  ~1,000 connections and falls at 2,000, because `dash.server/publish!` fans out
-  serially on the simulation's single scheduler thread. The ceiling is per-hint work,
-  not connection capacity — see that docstring.
+  progression was linear with no degradation. But throughput did not improve past
+  ~1,000 connections and fell at 2,000, because fan-out ran serially on the
+  simulation's single scheduler thread.
+
+  ## After parallelising the fan-out
+
+  | connections | serial | parallel | server CPU |
+  |---|---|---|---|
+  | 1,000 (60s) | 505,992 events | **837,952** events | 102% -> 32% |
+  | 2,000 | 237,883 events | **978,430** patches delivered | 102% -> ~26% |
+
+  At 2,000 the serial version had gone *backwards*; the parallel one delivers about
+  four times as much. Every connection stayed alive and none went silent at either
+  level.
+
+  One cost showed up only at 2,000: opening all of them took **305 seconds**, because
+  each mount competes with fan-out already in flight. Steady-state throughput was
+  unaffected, but a thundering herd of reconnects after a deploy would be slow — which
+  is a real operational property this app is now the only place to observe.
+
+  1.66x the throughput at a third of the CPU. Two changes, and the second mattered
+  more:
+
+  1. Fan-out moved to a work-stealing pool, so renders and socket writes for different
+     connections proceed in parallel.
+  2. The subscription index became per connection. It had been a single atom holding
+     `topic -> #{conn-id}`, rebuilt wholesale on every refresh — O(topics) work per
+     connection, serialized by CAS retries. Adding threads to that made it *worse*, and
+     the CPU drop from 102% to 32% is mostly this rather than the pool: the serial
+     version was burning a core on map rebuilds and lock contention, not on rendering.
+
+  The instrumentation had the same problem and needed `LongAdder` instead of an atom,
+  or it would have measured itself.
 
   This is the first fan-out measurement in the project. Every earlier concurrency
   number (44,836 connections at 3.6 KB each) was IDLE connections: they mounted once
