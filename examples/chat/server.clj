@@ -19,13 +19,12 @@
             [zodiac.core :as z]
             [zodiac.ext.live :as z.live]
             [zodiac.ext.sql :as z.sql]
-            [chat.component :as component]
+            [chat.view :as view]
             [chat.db :as db]
-            [chat.member :as member]
             [chat.presence :as presence]
             [chat.token :as token]
             [chat.typing :as typing]
-            [remuda.engine :as engine]
+            [remuda.watch-engine :as engine]
             [remuda.source :as source]))
 
 ;;; These are committed on purpose: this is a demo, and `clojure -M:example -m
@@ -54,22 +53,22 @@
    :before d*/pm-before :after d*/pm-after :replace d*/pm-replace})
 
 (defn- send-instructions!
-  [sse-gen instructions]
-  (doseq [{:keys [mode selector html move]} instructions]
-    (cond
-      (= :remove mode)
+  "Applies engine patches to a datastar SSE stream.
+
+  A patch is `{:selector :mode :html}` — the whole vocabulary. There is no `:move`
+  case any more: a fragment is re-rendered whole and datastar's patcher matches
+  elements by `id` and relocates them with `moveBefore`, so a reorder preserves DOM
+  state without the server describing it as a move. The old engine emitted a `:move`
+  op that had to be sent as remove-then-insert, because a positional insert alone
+  duplicated the element."
+  [sse-gen patches]
+  (doseq [{:keys [mode selector html]} patches]
+    (if (= :remove mode)
       (d*/patch-elements! sse-gen "" {d*/selector selector
                                       d*/patch-mode d*/pm-remove})
-      ;; A move is remove-then-insert: datastar has no move primitive, and a
-      ;; positional insert alone duplicates the element rather than relocating it.
-      move
-      (do (d*/patch-elements! sse-gen "" {d*/selector move
-                                          d*/patch-mode d*/pm-remove})
-          (d*/patch-elements! sse-gen html {d*/selector selector
-                                            d*/patch-mode (mode->datastar mode)}))
-      html
-      (d*/patch-elements! sse-gen html {d*/selector selector
-                                        d*/patch-mode (mode->datastar mode)}))))
+      (d*/patch-elements! sse-gen (or html "")
+                          {d*/selector selector
+                           d*/patch-mode (mode->datastar (or mode :outer))}))))
 
 (defn- signals
   "Datastar signals for this request.
@@ -124,11 +123,19 @@
          request
          {d*ring/on-open
           (fn [sse-gen]
-            (let [id (engine/connect! engine :chat
+            (let [db (get-in request [::z/context ::z.sql/db])
+                  channel (db/channel db channel-id)
+                  id (engine/connect! engine :chat
                                       {:send! #(send-instructions! sse-gen %)
-                                       :close! #(d*/close-sse! sse-gen)
                                        :params {:channel-id channel-id
-                                                :username username}})]
+                                                :username username
+                                                :source source
+                                                :channel-name (or (:name channel)
+                                                                  "unknown channel")}})]
+              ;; `:conn-id` cannot be passed to `connect!` — it IS the id `connect!`
+              ;; returns. The component needs it to key its per-connection state
+              ;; (pagination), so it is written back before the first render.
+              (swap! (:registry engine) update id assoc-in [:params :conn-id] id)
               (deliver id* id)
               (swap! connection-info assoc id {:channel-id channel-id
                                                :username username})
@@ -137,22 +144,22 @@
               (db/add-member! (get-in request [::z/context ::z.sql/db])
                               channel-id username)
               (let [newly-online? (presence/touch! channel-id username)]
-                ;; Subscribe and mount BEFORE announcing.
+                ;; Mount, then subscribe to what the render READ, then announce.
                 ;;
-                ;; Publishing first marks every subscriber dirty — and this context
-                ;; then subscribes and mounts with the *new* roster, so the flush
-                ;; diffs the new view against itself and emits nothing. Whichever
-                ;; context happened to flush after its own hint lost its update,
-                ;; which is why one tab would show a joiner and another would not.
+                ;; The topic list is no longer written here. `mount!` returns the
+                ;; topics its render actually read, so a hand-maintained list cannot
+                ;; drift from the component — which is the whole point of `watch`.
+                ;; It also means the per-member presence topics are picked up for
+                ;; free; the old version needed a live child per row to get them.
                 ;;
-                ;; Mounting first also means this connection's own view is correct
-                ;; without needing a hint at all.
-                (z.live/subscribe! live id
-                                   [[:channel channel-id] [:typing channel-id]])
-                (d*/patch-elements! sse-gen
-                                    (engine/mount! engine id {:source source})
-                                    {d*/selector "#live-root"
-                                     d*/patch-mode d*/pm-outer})
+                ;; Order still matters, for the reason it always did: publishing
+                ;; before this context is subscribed and mounted means its own
+                ;; arrival hint reaches everyone except itself.
+                (let [{:keys [html topics]} (engine/mount! engine id)]
+                  (z.live/subscribe! live id topics)
+                  (d*/patch-elements! sse-gen html
+                                      {d*/selector "#live-root"
+                                       d*/patch-mode d*/pm-outer}))
                 ;; Now tell everyone else. A hint only when the status actually
                 ;; changed: a second tab changes the connection count but not the
                 ;; status, and hinting on it would push an identical render.
@@ -491,10 +498,9 @@
         live-ext (z.live/init
                   {;; A VAR, so redefining the component at a REPL reaches
                    ;; already-connected contexts.
-                   :components {:chat #'component/chat
-                                ;; The sidebar rows. Registered like any component;
-                                ;; the parent's render mounts them.
-                                :member #'member/member}
+                   ;; One component. The sidebar rows are ordinary function calls
+                   ;; inside its render now, not separately registered children.
+                   :components {:chat #'view/component}
                    :render-fn chassis/html
                    ;; Indirection through an atom because the Source needs the db,
                    ;; which the sql extension only creates when the system starts.

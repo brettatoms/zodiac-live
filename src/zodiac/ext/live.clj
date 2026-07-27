@@ -34,12 +34,9 @@
   to survive `tools.namespace/refresh`. Recreating them on reload would drop every
   connection — the same failure as a server restart, triggered by saving a file."
   (:require [clojure.tools.logging :as log]
-            [darkstar.engine :as d*engine]
             [integrant.core :as ig]
-            [remuda.cache :as cache]
-            [remuda.engine :as engine]
             [remuda.pubsub :as pubsub]
-            [remuda.snapshot :as snapshot]))
+            [remuda.watch-engine :as engine]))
 
 (create-ns 'zodiac.core)
 (alias 'z 'zodiac.core)
@@ -56,41 +53,25 @@
   subscriptions
   (pubsub/registry))
 
-(defonce ^{:doc "Cross-viewer cache. Survives namespace reload."}
-  view-cache
-  (cache/cache))
-
 ;;; ==========================================================================
 ;;; Integrant components
 ;;; ==========================================================================
 
-(declare sync-children!)
-
-(defmethod ig/init-key ::engine [_ {:keys [components render-fn bus]}]
+(defmethod ig/init-key ::engine [_ {:keys [components render-fn]}]
   (log/debug "Starting zodiac-live engine")
-  (engine/start!
-   (engine/engine {:components components
-                   ;; Children are mounted by the engine, which knows nothing about
-                   ;; PubSub, so it reports what changed and this establishes their
-                   ;; subscriptions. Without it a child renders once and never
-                   ;; updates.
-                   :on-children (fn [eng reconciled]
-                                  (sync-children! {:bus bus} eng reconciled))
-                   ;; Fragment caching is entry point 2 of the cache: content
-                   ;; addressed, so it needs no declaration and cannot leak
-                   ;;.
-                   :render-fn #(cache/cached-render view-cache render-fn %)
-                   :registry registry})))
-
-(defmethod ig/halt-key! ::engine [_ eng]
-  (log/debug "Stopping zodiac-live engine")
-  (engine/stop! eng))
+  ;; No `:on-children` hook: nested fragments are ordinary function calls inside one
+  ;; render, so there are no child components whose subscriptions need establishing
+  ;; separately. And no `start!`/`stop!` — the watch engine holds a registry and
+  ;; nothing else, so there is no lifecycle to run.
+  (engine/engine {:components components
+                  :render-fn render-fn
+                  :registry registry}))
 
 (defmethod ig/init-key ::bus [_ {:keys [bus]}]
   (or bus (pubsub/local-pubsub)))
 
 (defmethod ig/init-key ::flusher
-  [_ {:keys [engine interval-ms source]}]
+  [_ {:keys [engine interval-ms bus]}]
   ;; The flush loop is what makes coalescing real: hints arriving inside one
   ;; interval collapse to a single rebuild per context. Flushing per hint
   ;; would defeat it.
@@ -100,23 +81,34 @@
                   (while @running?
                     (try
                       (Thread/sleep (long interval-ms))
-                      (let [{:keys [topics contexts]} (pubsub/flush-dirty! subscriptions)]
+                      (let [{:keys [topics]} (pubsub/flush-dirty! subscriptions)]
                         (when (seq topics)
-                          (log/debug "flush" {:topics topics
-                                              :contexts (count contexts)}))
-                        (when (seq contexts)
-                          ;; A hint announced that data changed, so a cached
-                          ;; derivation is exactly what must not be served.
-                          (cache/invalidate! view-cache)
-                          (doseq [id contexts]
+                          (log/debug "flush" {:topics topics})
+                          ;; Per TOPIC, not per context. `refresh!` needs to know
+                          ;; which topic fired so it can pick the narrowest fragment
+                          ;; that read it — a context alone does not say where to
+                          ;; patch.
+                          (doseq [topic topics
+                                  id (pubsub/contexts-for subscriptions #{topic})]
                             (try
-                              (engine/refresh! engine id
-                                               {:source source
-                                                :remuda.engine/cache view-cache}
-                                               d*engine/dispatch-opts)
+                              (let [{:keys [topics]} (engine/refresh! engine id topic)]
+                                ;; A dependency set is data, so it changes: a roster
+                                ;; that reads one presence topic per member depends on
+                                ;; a different set the moment its membership changes.
+                                ;; Subscribing only at mount left a later joiner
+                                ;; permanently stale.
+                                ;;
+                                ;; The whole current set is handed over rather than
+                                ;; the :added/:removed diff, because
+                                ;; `subscribe-context!` already diffs against what is
+                                ;; registered — and doing it there keeps one place
+                                ;; that decides what a subscription change means.
+                                (when (seq topics)
+                                  (pubsub/subscribe-context! subscriptions bus id topics)))
                               (catch Exception e
                                 ;; One failing context must not stop the others.
-                                (log/warn e "refresh failed" {:id id}))))))
+                                (log/warn e "refresh failed"
+                                          {:id id :topic topic}))))))
                       (catch InterruptedException _ (reset! running? false))
                       (catch Exception e (log/error e "flush loop error")))))
                 "zodiac-live-flusher")]
@@ -134,8 +126,7 @@
    :secret secret
    :sse-fn sse-fn
    :signals-fn signals-fn
-   :subscriptions subscriptions
-   :cache view-cache})
+   :subscriptions subscriptions})
 
 (defmethod ig/halt-key! ::flusher [_ {:keys [running? thread]}]
   (reset! running? false)
@@ -176,8 +167,7 @@
               :engine engine
               :source source
               :secret secret
-              :subscriptions subscriptions
-              :cache view-cache}))))
+              :subscriptions subscriptions}))))
 
 (defn action-handler
   "The interaction route. Looks up the live context and dispatches an event.
@@ -198,10 +188,19 @@
         ;; some-> so a missing event stays nil and produces a 409, rather than
         ;; (keyword nil) succeeding and failing later inside dispatch!.
         event (some-> (or (:event signals) (get params "event")) name keyword)]
-    (if (and id event (engine/live-context engine id))
-      (do (engine/dispatch! engine id event (dissoc signals :liveId :event)
-                            d*engine/dispatch-opts)
-          {:status 204})
+    (if (and id event (get @(:registry engine) id))
+      ;; A handler mutates the application's own state and RETURNS the topics it
+      ;; invalidated; it does not push. Publishing them here is what keeps one
+      ;; invalidation path — a hint from the acting connection and a hint from
+      ;; another user's action travel identically, through the bus and the flusher.
+      ;; Pushing from the handler would give the actor a second path that could
+      ;; disagree with everyone else's.
+      (let [{:keys [bus]} (live-ctx request)
+            topics (engine/dispatch! engine id event
+                                     (dissoc signals :liveId :event))]
+        (doseq [topic topics]
+          (pubsub/publish! bus topic))
+        {:status 204})
       {:status 409 :body "no live context"})))
 
 ;;; ==========================================================================
@@ -227,41 +226,6 @@
   (when-not (:bus live)
     (throw (ex-info "no bus in the zodiac-live context" {:got (keys live)})))
   (pubsub/subscribe-context! subscriptions (:bus live) id topics))
-
-(defn sync-children!
-  "Subscribes newly mounted live children and unsubscribes unmounted ones.
-
-  A child declares `:subscribe` like any component, but nothing calls it: children
-  are mounted by the engine, which deliberately knows nothing about PubSub. So the
-  engine reports what it mounted and unmounted, and this closes the loop.
-
-  Without it a child renders correctly and then never updates — its subscription was
-  declared and never established. Worse, an unmounted child's subscription would
-  outlive it, so hints would keep waking a context that no longer exists.
-
-  `reconciled` is what `remuda.engine/reconcile-children!` returns. Call after
-  anything that can change the child set: mount, reconnect, or a dispatch whose
-  render adds or removes children."
-  [live eng reconciled]
-  (doseq [cid (:unmounted reconciled)]
-    (pubsub/unsubscribe-context! subscriptions cid))
-  (doseq [cid (concat (vals (:mounted reconciled)) (vals (:updated reconciled)))]
-    (when-let [ctx (engine/live-context eng cid)]
-      (when-let [f (:subscribe (:component ctx))]
-        (when-let [topics (seq (f {:params (:params ctx)}))]
-          (subscribe! live cid topics)))))
-  reconciled)
-
-(defn recovery-snapshot
-  "A signed recovery snapshot for `id`, for the caller to send to the browser."
-  [system id secret]
-  (snapshot/create {:secret secret}
-                   (engine/snapshot-data (::engine system) id)))
-
-(defn verify-snapshot
-  "Verifies a snapshot string, returning `{:ok ...}`. See `snapshot/verify`."
-  [secret signed]
-  (snapshot/verify {:secret secret} signed))
 
 (defn routes
   "The routes zodiac-live needs, for the application to splice into its own route
