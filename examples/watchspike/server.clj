@@ -95,19 +95,6 @@
 
 (declare engine)
 
-(defn- read-fns
-  "Readers for every topic this app publishes, keyed the same way the component reads
-  them. This is what lets `refresh!` answer \"did anything change?\" without rendering.
-
-  The duplication with the component is the cost of the optimisation, and it is worth
-  naming: the component reads through `watch`, and this repeats those reads for the
-  engine. Getting one wrong makes a fragment re-render when it need not — wasteful,
-  never wrong — so it fails safe."
-  [channel-id]
-  (into {[:members channel-id] #(roster channel-id)}
-        (for [u (roster channel-id)]
-          [[:presence channel-id u] #(online? channel-id u)])))
-
 (defn publish!
   "Re-renders every connection subscribed to `topic`, pushes what changed, and
   updates that connection's subscriptions.
@@ -119,21 +106,19 @@
   then never went grey, because the viewer had never subscribed to a topic that did
   not exist when it mounted. Found in a browser, not in a test."
   [topic]
-  ;; Every topic here is [kind channel-id ...], so the readers for it are derivable
-  ;; from the topic itself. No need to look up the connection.
-  (let [readers (read-fns (second topic))]
-    (doseq [id (get @topic-subs topic)]
-      (try
-        (let [{:keys [patches added removed pruned]}
-              (we/refresh! engine id topic {:read-fns readers})]
-          (when (seq added) (subscribe! id added))
-          (when (seq removed) (unsubscribe! id removed))
-          (println (if pruned "PRUNED" "PUSH") id (pr-str topic)
-                   "->" (pr-str (mapv :selector patches))
-                   (when (seq added) (str "+sub " (pr-str added)))
-                   (when (seq removed) (str "-sub " (pr-str removed)))))
-        (catch Throwable e
-          (println "refresh FAILED" id (pr-str topic) (ex-message e)))))))
+  (doseq [id (get @topic-subs topic)]
+    (try
+      ;; No readers passed: `watch` recorded the component's own, so a no-op hint is
+      ;; answered by pointer comparison without this app restating its dependencies.
+      (let [{:keys [patches added removed pruned]} (we/refresh! engine id topic)]
+        (when (seq added) (subscribe! id added))
+        (when (seq removed) (unsubscribe! id removed))
+        (println (if pruned "PRUNED" "PUSH") id (pr-str topic)
+                 "->" (pr-str (mapv :selector patches))
+                 (when (seq added) (str "+sub " (pr-str added)))
+                 (when (seq removed) (str "-sub " (pr-str removed)))))
+      (catch Throwable e
+        (println "refresh FAILED" id (pr-str topic) (ex-message e))))))
 
 ;;; ==========================================================================
 ;;; The component — one function, dependencies at the point of use
