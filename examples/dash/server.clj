@@ -52,7 +52,31 @@
   (atom {:hints 0 :refreshes 0 :patches 0 :pruned 0}))
 
 (defn publish!
-  "Refreshes every connection subscribed to `topic` and pushes what changed."
+  "Refreshes every connection subscribed to `topic` and pushes what changed.
+
+  ## This is the throughput bottleneck, measured
+
+  Fan-out is SERIAL and runs on whichever thread called `publish!` — which is the
+  simulation's single-threaded scheduler. So every render and every socket write for
+  every subscriber happens on one thread, and the server saturates at roughly one
+  core:
+
+  | connections | events in 45s | server CPU | all alive? |
+  |---|---|---|---|
+  | 500 | ~360,000 | 48% | yes, silent=0 |
+  | 1,000 | ~380,000 | 102% | yes, silent=0 |
+  | 2,000 | ~238,000 | 102% | yes, silent=0 |
+
+  Throughput *falls* between 1,000 and 2,000 while connection count keeps working, so
+  the limit is per-hint work rather than connection capacity. Nothing dropped and no
+  connection went silent at any level.
+
+  Parallelising this is the obvious fix and is deliberately not done: the point of the
+  measurement was to find where the ceiling is, and a `pmap` here would hide it behind
+  8 cores rather than explain it. A real deployment would hand each subscriber's
+  refresh to an executor, or coalesce hints per connection the way
+  `remuda.pubsub`'s flush loop does — this app skips that loop on purpose so that
+  fragment selection is what is under test."
   [topic]
   (swap! stats update :hints inc)
   (doseq [id (get @topic-subs topic)]

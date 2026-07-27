@@ -37,6 +37,27 @@
   job list and summary stayed put. The rate spread is real and the narrow patching
   holds.
 
+  ## Under fan-out
+
+  Soaked with hundreds of real SSE readers, counting bytes per connection so that a
+  connection which opened but received nothing could not be mistaken for a working one:
+
+  | connections | events delivered | MB | server CPU | silent |
+  |---|---|---|---|---|
+  | 500 (60s) | 478,000 | 219 | 48% | 0 |
+  | 1,000 (60s) | 505,992 | 227 | 102% | 0 |
+  | 2,000 (45s) | 237,883 | 102 | 102% | 0 |
+
+  Every connection stayed alive and receiving at every level, and the per-sample
+  progression was linear with no degradation. But throughput does not improve past
+  ~1,000 connections and falls at 2,000, because `dash.server/publish!` fans out
+  serially on the simulation's single scheduler thread. The ceiling is per-hint work,
+  not connection capacity — see that docstring.
+
+  This is the first fan-out measurement in the project. Every earlier concurrency
+  number (44,836 connections at 3.6 KB each) was IDLE connections: they mounted once
+  and then nothing was pushed.
+
   ## Everything here is a plain atom
 
   No SQLite, deliberately. The chat example already proves the `Source` path, and a
