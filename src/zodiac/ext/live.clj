@@ -91,7 +91,10 @@
                           (doseq [topic topics
                                   id (pubsub/contexts-for subscriptions #{topic})]
                             (try
-                              (let [{:keys [topics]} (engine/refresh! engine id topic)]
+                              ;; `current` rather than `topics`: the outer `topics`
+                              ;; is the dirty set being iterated, and shadowing it
+                              ;; here would be a trap for the next reader.
+                              (let [{current :topics} (engine/refresh! engine id topic)]
                                 ;; A dependency set is data, so it changes: a roster
                                 ;; that reads one presence topic per member depends on
                                 ;; a different set the moment its membership changes.
@@ -103,8 +106,8 @@
                                 ;; `subscribe-context!` already diffs against what is
                                 ;; registered — and doing it there keeps one place
                                 ;; that decides what a subscription change means.
-                                (when (seq topics)
-                                  (pubsub/subscribe-context! subscriptions bus id topics)))
+                                (when (seq current)
+                                  (pubsub/subscribe-context! subscriptions bus id current)))
                               (catch Exception e
                                 ;; One failing context must not stop the others.
                                 (log/warn e "refresh failed"

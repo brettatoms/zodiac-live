@@ -104,7 +104,10 @@
   (fragment
    "roster"
    (fn []
-     (let [members (watch [:members channel-id]
+     ;; `[:channel …]`, not `[:members …]`: that is the topic the server publishes
+     ;; when the roster changes. A topic name invented here is a fragment that never
+     ;; updates, and it fails silently — the first render is correct.
+     (let [members (watch [:channel channel-id]
                           #(source/fetch source [:members channel-id]))]
        [:aside {:id "roster" :class "roster"}
         [:h3 {:class "roster__title"}
