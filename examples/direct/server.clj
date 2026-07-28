@@ -3,7 +3,7 @@
 
   A control experiment for the framework version in `examples/chat`. **Same zodiac,
   same zodiac-sql, same routing, same middleware, same CSS, same crypto.** The only
-  variable removed is the remuda engine — no view state, no diffing, no boundaries,
+  variable removed is the darkstar engine — no view state, no diffing, no boundaries,
   no tiers, no live children.
 
   Run:

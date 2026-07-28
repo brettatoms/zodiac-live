@@ -4,7 +4,6 @@
  ;; past wiring, the map-of-pieces design has failed.
  ;;
  :deps {org.clojure/clojure {:mvn/version "1.12.5"}
-        com.github.brettatoms/remuda {:mvn/version "0.1.42"}
         com.github.brettatoms/darkstar {:mvn/version "0.1.9"}
         com.github.brettatoms/zodiac {:mvn/version "1.0.119"}
         integrant/integrant {:mvn/version "1.0.1"}
@@ -28,7 +27,7 @@
                   :main-opts ["-m" "kaocha.runner"]}
 
            ;; The CONTROL EXPERIMENT: the same app on the same stack, using Datastar
-           ;; directly instead of remuda. Same zodiac, same zodiac-sql, so the only
+           ;; directly instead of darkstar. Same zodiac, same zodiac-sql, so the only
            ;; variable is the engine.
            ;;
            ;;   clojure -M:direct -m direct.server   (port 3001)
@@ -41,7 +40,7 @@
                                  com.github.seancorfield/next.jdbc {:mvn/version "1.3.1118"}}
                     :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]}
 
-           ;; A browser test for remuda.watch. Roster only, bare jetty, no zodiac
+           ;; A browser test for darkstar.watch. Roster only, bare jetty, no zodiac
            ;; and no extension — see examples/watchspike/server.clj for why.
            ;;
            ;;   clojure -M:dev:watchspike -m watchspike.server   (port 3002)
@@ -50,16 +49,6 @@
                                      dev.onionpancakes/chassis {:mvn/version "1.0.365"}
                                      ring/ring-jetty-adapter {:mvn/version "1.14.2"}}
                         :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]}
-
-           ;; Does the recovery snapshot do work nothing else can? No identity in the
-           ;; URL, state the client cannot re-derive. See examples/snapspike.
-           ;;
-           ;;   clojure -M:dev:snapspike -m snapspike.server   (port 3003)
-           :snapspike {:extra-paths ["examples" "examples/resources"]
-                       :extra-deps {dev.data-star.clojure/ring {:mvn/version "1.0.0-RC11"}
-                                    dev.onionpancakes/chassis {:mvn/version "1.0.365"}
-                                    ring/ring-jetty-adapter {:mvn/version "1.14.2"}}
-                       :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]}
 
            ;; The build dashboard: 1 writer, N readers, with sibling fragments whose
            ;; update rates differ by ~100x. Tests fan-out and pruning where a chat app
@@ -75,8 +64,7 @@
 
            ;; clojure -M:dev:... — resolve sibling libraries from the working tree
            ;; rather than a released version. See darkstar's :dev alias.
-           :dev {:override-deps {com.github.brettatoms/remuda {:local/root "../remuda"}
-                                 com.github.brettatoms/darkstar {:local/root "../darkstar"}}}
+           :dev {:override-deps {com.github.brettatoms/darkstar {:local/root "../darkstar"}}}
 
            ;; clojure -T:build jar | deploy
            :build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.14"}

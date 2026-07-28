@@ -1,5 +1,5 @@
 (ns chat.view
-  "The chat channel, written with `remuda.watch`.
+  "The chat channel, written with `darkstar.watch`.
 
   Replaces `chat.component`, which used the `:mount`/`:subscribe`/`:render` triple.
   The whole component is functions returning hiccup; a dependency is declared by
@@ -43,8 +43,8 @@
             [chat.presence :as presence]
             [chat.typing :as typing]
             [darkstar.action :as action]
-            [remuda.source :as source]
-            [remuda.watch :as w :refer [fragment watch]]))
+            [darkstar.source :as source]
+            [darkstar.watch :as w :refer [fragment watch]]))
 
 ;;; ==========================================================================
 ;;; Ids — the only naming discipline this component needs

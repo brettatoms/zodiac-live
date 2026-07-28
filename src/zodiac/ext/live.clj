@@ -1,5 +1,5 @@
 (ns zodiac.ext.live
-  "Zodiac extension for remuda + darkstar.
+  "Zodiac extension for darkstar.
 
   The core is plain Ring and knows nothing about zodiac; this
   namespace is the wiring, following the shape of `zodiac-hot-reload`: integrant
@@ -35,8 +35,8 @@
   connection — the same failure as a server restart, triggered by saving a file."
   (:require [clojure.tools.logging :as log]
             [integrant.core :as ig]
-            [remuda.pubsub :as pubsub]
-            [remuda.watch-engine :as engine]))
+            [darkstar.pubsub :as pubsub]
+            [darkstar.live :as engine]))
 
 (create-ns 'zodiac.core)
 (alias 'z 'zodiac.core)
@@ -272,7 +272,7 @@
   Options:
   - `:components`  map of name -> component (register **vars**, )
   - `:render-fn`   hiccup -> string
-  - `:source`      a `remuda.source/Source`
+  - `:source`      a `darkstar.source/Source`
   - `:secret`      HMAC key for recovery snapshots
   - `:sse-fn`      (fn [ctx] -> ring response) owning the transport
   - `:signals-fn`  (fn [request] -> map) reading client signals, optional

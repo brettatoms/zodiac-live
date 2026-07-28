@@ -1,5 +1,5 @@
 (ns dash.view
-  "The dashboard, in `remuda.watch`.
+  "The dashboard, in `darkstar.watch`.
 
   ## What this is testing
 
@@ -23,7 +23,7 @@
   a view map."
   (:require [clojure.string :as str]
             [dash.jobs :as jobs]
-            [remuda.watch :refer [fragment watch]]))
+            [darkstar.watch :refer [fragment watch]]))
 
 ;;; ==========================================================================
 ;;; Ids

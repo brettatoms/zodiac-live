@@ -24,8 +24,8 @@
             [chat.presence :as presence]
             [chat.token :as token]
             [chat.typing :as typing]
-            [remuda.watch-engine :as engine]
-            [remuda.source :as source]))
+            [darkstar.live :as engine]
+            [darkstar.source :as source]))
 
 ;;; These are committed on purpose: this is a demo, and `clojure -M:example -m
 ;;; chat.server` should just work. Both are overridable by environment variable,

@@ -1,5 +1,5 @@
 (ns ported.view
-  "`examples/direct` ported to `remuda.watch`, changing nothing but the engine.
+  "`examples/direct` ported to `darkstar.watch`, changing nothing but the engine.
 
   This exists to make one comparison honest. `examples/chat` and `examples/direct`
   were written days apart with different ideas in mind, so measuring them against each
@@ -40,11 +40,11 @@
   ## `live.clj` is gone
 
   The direct version's 101-line connection registry — open, close, touch, fan-out by
-  channel, drop on failed write — is what `remuda.watch-engine` plus the zodiac
+  channel, drop on failed write — is what `darkstar.live` plus the zodiac
   extension provide. That is the clearest win: it was infrastructure, not application."
   (:require [clojure.string :as str]
             [direct.db :as db]
-            [remuda.watch :as w :refer [fragment watch]]))
+            [darkstar.watch :as w :refer [fragment watch]]))
 
 ;;; ==========================================================================
 ;;; Ids

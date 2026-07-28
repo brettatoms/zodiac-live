@@ -24,7 +24,7 @@
   not have. What this buys is that identity cannot be *changed* by editing a URL,
   which was the actual hole.
 
-  Same construction as `remuda.snapshot`: base64url payload, `.`, HMAC-SHA256, with
+  Same construction as `darkstar.snapshot`: base64url payload, `.`, HMAC-SHA256, with
   a constant-time comparison on the way back in."
   (:require [clojure.edn :as edn])
   (:import [java.nio.charset StandardCharsets]

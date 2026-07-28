@@ -1,5 +1,5 @@
 (ns watchspike.server
-  "A browser test for `remuda.watch` and `remuda.watch-engine`. Roster only.
+  "A browser test for `darkstar.watch` and `darkstar.live`. Roster only.
 
   ## Why this exists rather than a change to the chat app
 
@@ -30,8 +30,8 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [dev.onionpancakes.chassis.core :as h]
-            [remuda.watch :as w]
-            [remuda.watch-engine :as we]
+            [darkstar.watch :as w]
+            [darkstar.live :as we]
             [ring.adapter.jetty :as jetty]
             [ring.middleware.params :refer [wrap-params]]
             [starfederation.datastar.clojure.adapter.ring :as d*ring]
@@ -319,7 +319,7 @@ h3 { margin:0 0 var(--space); font-size:14px; text-transform:uppercase;
   ;; default synchronous mode the servlet request completes as soon as the handler
   ;; returns, so an SSE response is torn down the moment `on-open` finishes — and a
   ;; later write from another thread reports success while the client receives
-  ;; nothing and `on-close` has already fired. Verified in isolation with no remuda
+  ;; nothing and `on-close` has already fired. Verified in isolation with no darkstar
   ;; involved: a 30-line jetty+datastar server loses every cross-connection patch
   ;; the same way. `examples/chat` sets both for the same reason.
   (jetty/run-jetty (wrap-params #'async-handler)

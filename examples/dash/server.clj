@@ -13,7 +13,7 @@
             [dash.jobs :as jobs]
             [dash.view :as view]
             [dev.onionpancakes.chassis.core :as h]
-            [remuda.watch-engine :as engine]
+            [darkstar.live :as engine]
             [ring.adapter.jetty :as jetty]
             [starfederation.datastar.clojure.adapter.ring :as d*ring]
             [starfederation.datastar.clojure.api :as d*]))
@@ -21,7 +21,7 @@
 ;;; ==========================================================================
 ;;; Subscriptions
 ;;; ==========================================================================
-;;; A local topic -> connection index, rather than remuda.pubsub, because that
+;;; A local topic -> connection index, rather than darkstar.pubsub, because that
 ;;; namespace's coalescing flush loop is the thing under test elsewhere. Here the
 ;;; question is whether fragment selection holds up at 10 hints a second, so the
 ;;; subscription side is kept as simple as possible.

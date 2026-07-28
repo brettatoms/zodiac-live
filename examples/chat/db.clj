@@ -11,7 +11,7 @@
 
   Usernames are stored in the clear, which the brief allows."
   (:require [zodiac.ext.sql :as z.sql]
-            [remuda.source :as source]))
+            [darkstar.source :as source]))
 
 (def page-size 50)
 
