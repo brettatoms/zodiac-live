@@ -14,9 +14,9 @@
             [dash.view :as view]
             [dev.onionpancakes.chassis.core :as h]
             [darkstar.live :as engine]
+            [darkstar.sse :as sse]
             [ring.adapter.jetty :as jetty]
-            [starfederation.datastar.clojure.adapter.ring :as d*ring]
-            [starfederation.datastar.clojure.api :as d*]))
+            [starfederation.datastar.clojure.adapter.ring :as d*ring]))
 
 ;;; ==========================================================================
 ;;; Subscriptions
@@ -206,62 +206,29 @@ h1{font-size:18px;margin:0 0 var(--sp)}
       [:div {:id "dash"} "connecting…"]
       [:div {:data-init "@get('/d/live', {requestCancellation: 'cleanup'})"}]]]]))
 
-(defn- live [request]
-  (let [id* (promise)]
-    (d*ring/->sse-response
-     request
-     {d*ring/on-open
-      (fn [sse-gen]
-        (let [id (engine/connect!
-                  eng :dash
-                  {:send! (fn [patches]
-                            (doseq [{:keys [selector mode html]} patches]
-                              (d*/patch-elements! sse-gen (or html "")
-                                                  {d*/selector selector
-                                                   d*/patch-mode (if (= :inner mode)
-                                                                   d*/pm-inner
-                                                                   d*/pm-outer)})))})]
-          (deliver id* id)
-          (swap! (:registry eng) update id assoc-in [:params :conn-id] id)
-          (let [{:keys [html topics]} (engine/mount! eng id)]
-            (subscribe! id topics)
-            (d*/patch-elements! sse-gen html
-                                {d*/selector "#dash" d*/patch-mode d*/pm-outer}))
-          (d*/execute-script! sse-gen (str "window.__id=" (pr-str id) ";"))
-          nil))
-      d*ring/on-close
-      (fn [& _]
-        (when-let [id (deref id* 1000 nil)]
-          (unsubscribe-all! id)
-          (view/forget-connection! id)
-          (engine/disconnect! eng id)))})))
+(defn- live
+  "Opens the SSE stream. The lifecycle is `darkstar.sse/handlers`; only the parts that
+  are actually specific to this app are passed in."
+  [request]
+  (let [{:keys [on-open on-close]}
+        (sse/handlers {:engine eng
+                       :component :dash
+                       :root "#dash"
+                       :subscribe! subscribe!
+                       :unsubscribe! unsubscribe-all!
+                       :on-closed view/forget-connection!})]
+    (d*ring/->sse-response request
+                           {d*ring/on-open on-open
+                            d*ring/on-close on-close})))
 
 (defn- toggle
   "Expands or collapses one job's log for one connection.
 
   Reads the datastar payload, which arrives as the JSON request body. The connection
   id comes from the client because a POST is a separate request with no association to
-  the SSE stream — `window.__id` is set by the mount script."
+  the SSE stream — `window.__darkstarId` is set by `darkstar.sse`."
   [request]
-  ;; ## Two traps here, both measured
-  ;;
-  ;; 1. `d*/get-signals` returns the request body as a STREAM — a jetty `HttpInput` —
-  ;;    not a parsed map and not a string. A version that tested `map?` then `string?`
-  ;;    matched neither and produced nil, which surfaced as a 409 that read like a
-  ;;    missing connection id rather than a parsing mistake.
-  ;;
-  ;; 2. `wrap-params` DRAINS that stream. It reads the body looking for form params on
-  ;;    a POST, so by the time this runs there is nothing left to read — and the
-  ;;    identical request sent by `curl` worked, because curl was hitting a handler
-  ;;    reached before the middleware had a reason to look. The chat app hit the same
-  ;;    wall with muuntaja and solved it by reading `:body-params`; here the fix is to
-  ;;    keep `wrap-params` away from the body entirely (see `-main`).
-  (let [payload (try (some-> (d*/get-signals request)
-                             slurp
-                             (charred/read-json :key-fn keyword))
-                     (catch Exception e
-                       (println "could not read toggle payload:" (ex-message e))
-                       nil))
+  (let [payload (sse/read-payload request #(charred/read-json % :key-fn keyword))
         id (:id payload)
         job (:job payload)]
     (if-let [conn-id id]

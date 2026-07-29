@@ -118,7 +118,7 @@
                ;; is spelled out by hand here only because this app deliberately has no
                ;; darkstar dependency.
                :data-on:click (str "@post('/d/toggle', {payload: {job: " id
-                                   ", id: window.__id}})")}
+                                   ", id: window.__darkstarId}})")}
          [:span {:class "job__name"} name]
          [:span {:class "job__status"} (clojure.core/name status)]
          [:div {:class "job__bar"}
