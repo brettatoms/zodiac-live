@@ -132,10 +132,8 @@
                                                 :source source
                                                 :channel-name (or (:name channel)
                                                                   "unknown channel")}})]
-              ;; `:conn-id` cannot be passed to `connect!` — it IS the id `connect!`
-              ;; returns. The component needs it to key its per-connection state
-              ;; (pagination), so it is written back before the first render.
-              (swap! (:registry engine) update id assoc-in [:params :conn-id] id)
+              ;; `connect!` adds `:conn-id` to params, which the component needs to key
+              ;; its per-connection state (pagination).
               (deliver id* id)
               (swap! connection-info assoc id {:channel-id channel-id
                                                :username username})

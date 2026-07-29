@@ -165,10 +165,14 @@
   "The message input.
 
   No `watch` and no server-held value: the input owns what is typed into it. A
-  `data-on:input` reports *whether* someone is typing, never the text."
+  `data-on:input` reports *whether* someone is typing, never the text.
+
+  Hence `:static?` — mirroring the draft server-side would echo a stale value back into
+  the field someone is typing in."
   []
   (fragment
    "composer"
+   {:static? true}
    (fn []
      [:form {:id "composer" :class "composer"
              :data-on:submit "evt.preventDefault(); window.chatSend()"}

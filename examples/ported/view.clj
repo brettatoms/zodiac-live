@@ -84,14 +84,20 @@
    [:span {:class "body" :data-ct body :data-iv iv}]])
 
 (defn member
-  "One roster row.
+  "One roster row, rendered from values its parent read.
 
-  The direct version pushed this from `push-member!` after touching presence. Here the
-  presence read *is* the subscription, so a member going offline patches this row and
-  nothing else."
+  Declared `:static?` because it genuinely is: this port reuses `direct`'s server, which
+  publishes one channel-wide `[:presence channel-id]` rather than a topic per member, so
+  there is nothing for a row to read on its own. `roster` re-renders and datastar's morph
+  updates the rows by id.
+
+  `chat` does this the other way — `member-row` reads `[:presence channel-id username]`
+  and is patched individually. That is the better shape, and the difference is the point
+  of keeping both apps."
   [username online?]
   (fragment
    (member-id username)
+   {:static? true}
    (fn []
      [:li {:id (member-id username)
            :class (str "member " (if online? "online" "offline"))}
