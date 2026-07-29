@@ -10,10 +10,13 @@ patches; this connects it to a Zodiac app.
 ## Install
 
 ```clojure
-com.github.brettatoms/zodiac-live {:mvn/version "0.1.26"}
+com.github.brettatoms/zodiac-live {:mvn/version "0.1.27"}
 ```
 
-Brings in Darkstar transitively.
+Brings in Darkstar transitively. The patch number is `git rev-list --count HEAD` at
+release time, so it moves with every commit — check the
+[Clojars page](https://clojars.org/com.github.brettatoms/zodiac-live) rather than
+trusting this line.
 
 ## Usage
 
@@ -64,8 +67,9 @@ Two details in the flush loop worth knowing, because both were bugs first:
 
 ## Examples
 
-Four applications, kept because each answers a different question. All run against the
-working tree via the `:dev` alias.
+Four applications, kept because each answers a different question. They run against the
+released Darkstar; add `:dev` (`-M:dev:example`) to resolve it from a sibling checkout
+instead.
 
 ### `examples/chat` — the feature-complete one
 
@@ -74,7 +78,7 @@ usernames, message history with pagination, typing indicators, and a member rost
 presence dots.
 
 ```
-clojure -M:dev:example -m chat.server        # http://localhost:3000
+clojure -M:example -m chat.server            # http://localhost:3000
 ```
 
 The encryption key lives in the URL fragment, which browsers do not transmit, so the
@@ -90,7 +94,7 @@ The same app twice: `direct` uses Datastar with no engine at all, naming a selec
 pushing to it; `ported` is that app with only the engine swapped for `watch`.
 
 ```
-clojure -M:dev:direct -m direct.server       # http://localhost:3001
+clojure -M:direct -m direct.server           # http://localhost:3001
 ```
 
 This pair exists because comparing `chat` against `direct` compared two apps written
@@ -113,7 +117,7 @@ spanning 100× (a summary every few seconds, a job row a few times a second, a l
 ten times a second).
 
 ```
-clojure -M:dev:dash -m dash.server           # http://localhost:3004
+clojure -M:dash -m dash.server               # http://localhost:3004
 examples/dash/soak.py 1000 60                # fan-out soak
 ```
 
@@ -128,7 +132,7 @@ expanded that job's log — the dependency set being data rather than a declarat
 A roster only, on bare Jetty with no Zodiac and no extension.
 
 ```
-clojure -M:dev:watchspike -m watchspike.server   # http://localhost:3002
+clojure -M:watchspike -m watchspike.server   # http://localhost:3002
 ```
 
 Kept because when something breaks, it is useful to have a version where a failure
